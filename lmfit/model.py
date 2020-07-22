@@ -1422,7 +1422,7 @@ class ModelResult(Minimizer):
             params = self.params
         return self.model.eval_components(params=params, **userkws)
 
-    def eval_uncertainty(self, params=None, sigma=1, **kwargs):
+    def eval_uncertainty(self, params=None, sigma=1, predict=False, **kwargs):
         """Evaluate the uncertainty of the *model function*.
 
         This can be used to give confidence bands for the model from the
@@ -1504,7 +1504,13 @@ class ModelResult(Minimizer):
             prob = sigma
         else:
             prob = erf(sigma/np.sqrt(2))
-        return np.sqrt(df2) * t.ppf((prob+1)/2.0, self.ndata-nvarys)
+            
+        if predict:
+            stderr = np.sqrt(1.0+df2)
+        else:
+            stderr = np.sqrt(df2)
+        
+        return stderr * t.ppf((prob+1)/2.0, self.ndata-nvarys)
 
     def conf_interval(self, **kwargs):
         """Calculate the confidence intervals for the variable parameters.
