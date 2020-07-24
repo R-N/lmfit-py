@@ -315,7 +315,11 @@ class MinimizerResult:
     def __init__(self, **kws):
         for key, val in kws.items():
             setattr(self, key, val)
-
+    
+    @property
+    def values(self):
+        return {k:v.value for k, v in self.params.items()}
+    
     @property
     def flatchain(self):
         """Show flatchain view of the sampling chain from `emcee` method."""
@@ -521,7 +525,67 @@ class Minimizer:
         self.params = params
         self.jacfcn = None
         self.nan_policy = nan_policy
+    
+    
+    def eval(self, params, **kwargs):
+        if kwargs:
+            kws = dict(self.userkws)
+            kws.update(kwargs)
+        else:
+            kws = self.userkws
+        return self.userfcn(params, *self.userargs, **kws)
+        
+    def eval_uncertainty(self, params, covar, sigma=1, predict=False, **kwargs):
+        """Taken from ModelResult"""
+        userkws = self.userkws.copy()
+        userkws.update(kwargs)
+        """
+        self.params is not updated
+        if params is None:
+            params = self.params
+        """
+        nvarys = self.nvarys#len([1 for v in params.values() if v.vary])
+        
+        # ensure fjac and df2 are correct size if independent var updated by kwargs
+        ndata = self.eval(params, **userkws).size
+        #covar = self.covar
+        fjac = np.zeros((nvarys, ndata))
+        df2 = np.zeros(ndata)
+        if any([p.stderr is None for p in params.values()]):
+            return df2
 
+        # find derivative by hand!
+        pars = params.copy()
+        for i in range(nvarys):
+            pname = self.var_names[i]
+            val0 = pars[pname].value
+            dval = pars[pname].stderr/3.0
+
+            pars[pname].value = val0 + dval
+            res1 = self.eval(pars, **userkws)
+
+            pars[pname].value = val0 - dval
+            res2 = self.eval(pars, **userkws)
+
+            pars[pname].value = val0
+            fjac[i] = (res1 - res2) / (2*dval)
+
+        for i in range(nvarys):
+            for j in range(nvarys):
+                df2 += fjac[i]*fjac[j]*covar[i, j]
+
+        if sigma < 1.0:
+            prob = sigma
+        else:
+            prob = erf(sigma/np.sqrt(2))
+            
+        if predict:
+            stderr = np.sqrt(df2+1.0)
+        else:
+            stderr = np.sqrt(df2)
+        
+        return stderr * t.ppf((prob+1)/2.0, self.ndata-nvarys)
+    
     def set_max_nfev(self, max_nfev=None, default_value=100000):
         """Set maximum number of function evaluations.
 
@@ -1733,6 +1797,7 @@ class Minimizer:
             # calculate parameter uncertainties and correlations
             self._calculate_uncertainties_correlations()
         else:
+            #print(lsout)
             result.message = '%s Could not estimate error-bars.' % result.message
 
         np.seterr(**orig_warn_settings)

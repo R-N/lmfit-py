@@ -1506,7 +1506,7 @@ class ModelResult(Minimizer):
             prob = erf(sigma/np.sqrt(2))
             
         if predict:
-            stderr = np.sqrt(1.0+df2)
+            stderr = np.sqrt(df2+1.0)
         else:
             stderr = np.sqrt(df2)
         

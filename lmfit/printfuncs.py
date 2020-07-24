@@ -321,6 +321,8 @@ def params_html_table(params):
                     spercent = '({:.2%})'.format(abs(par.stderr/par.value))
                 except ZeroDivisionError:
                     spercent = ''
+            else:
+                spercent = ''
             rows.extend([serr, spercent])
         rows.extend((par.init_value, gformat(par.min),
                      gformat(par.max), '%s' % par.vary))
