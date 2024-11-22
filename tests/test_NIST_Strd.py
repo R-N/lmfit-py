@@ -1,9 +1,11 @@
 import math
 from optparse import OptionParser
 
-from NISTModels import Models, ReadNistData
+from numpy.testing import assert_allclose
 
 from lmfit import Parameters, minimize
+
+from .NISTModels import Models, ReadNistData
 
 
 def ndig(a, b):
@@ -16,7 +18,7 @@ ABAR = ' |----------------+----------------+------------------+-----------------
 
 def Compare_NIST_Results(DataSet, myfit, params, NISTdata):
     buff = [' ======================================',
-            ' %s: ' % DataSet,
+            f' {DataSet}: ',
             ' | Parameter Name |  Value Found   |  Certified Value | # Matching Digits |']
     buff.append(ABAR)
 
@@ -24,7 +26,7 @@ def Compare_NIST_Results(DataSet, myfit, params, NISTdata):
     err_dig_min = 200
     fmt = ' | %s | % -.7e | % -.7e   | %2i                |'
     for i in range(NISTdata['nparams']):
-        parname = 'b%i' % (i+1)
+        parname = f'b{i+1}'
         par = params[parname]
         thisval = par.value
         certval = NISTdata['cert_values'][i]
@@ -54,10 +56,10 @@ def Compare_NIST_Results(DataSet, myfit, params, NISTdata):
         buff.append(' |          * * * * COULD NOT ESTIMATE UNCERTAINTIES * * * *              |')
         err_dig_min = 0
     if err_dig_min < 199:
-        buff.append(' Worst agreement: %i digits for value, %i digits for error '
-                    % (val_dig_min, err_dig_min))
+        buff.append(f' Worst agreement: {val_dig_min} digits for value, '
+                    f'{err_dig_min} digits for error ')
     else:
-        buff.append(' Worst agreement: %i digits' % (val_dig_min))
+        buff.append(f' Worst agreement: {val_dig_min} digits')
     return val_dig_min, '\n'.join(buff)
 
 
@@ -71,30 +73,34 @@ def NIST_Dataset(DataSet, method='leastsq', start='start2',
 
     params = Parameters()
     for i in range(npar):
-        pname = 'b%i' % (i+1)
+        pname = f'b{i+1}'
         pval1 = NISTdata[start][i]
         params.add(pname, value=pval1)
-
-    myfit = minimize(resid, params, method=method, args=(x,), kws={'y': y})
+    try:
+        myfit = minimize(resid, params, method=method, args=(x,), kws={'y': y}, nan_policy='raise')
+    except ValueError:
+        if verbose:
+            print("Fit failed... nans?")
+        return False
     digs, buff = Compare_NIST_Results(DataSet, myfit, myfit.params, NISTdata)
     if verbose:
         print(buff)
 
-    return digs > 1
+    return digs > 2
 
 
 def build_usage():
     modelnames = []
     ms = ''
     for d in sorted(Models.keys()):
-        ms = ms + ' %s ' % d
+        ms = ms + f' {d} '
         if len(ms) > 55:
             modelnames.append(ms)
             ms = '    '
     modelnames.append(ms)
     modelnames = '\n'.join(modelnames)
 
-    usage = """
+    usage = f"""
  === Test Fit to NIST StRD Models ===
 
 usage:
@@ -104,7 +110,7 @@ usage:
 where Start is one of 'start1','start2' or 'cert', for different
 starting values, and Model is one of
 
-    %s
+    {modelnames}
 
 if Model = 'all', all models and starting values will be run.
 
@@ -112,9 +118,9 @@ options:
 --------
   -m  name of fitting method.  One of:
           leastsq, nelder, powell, lbfgsb, bfgs,
-          tnc, cobyla, slsqp, cg, newto-cg
+          tnc, cobyla, slsqp, cg, newton-cg
       leastsq (Levenberg-Marquardt) is the default
-""" % modelnames
+"""
     return usage
 ############################
 
@@ -148,10 +154,10 @@ def run_interactive():
                     tpass += 1
                 else:
                     tfail += 1
-                    failures.append("   %s (starting at '%s')" % (dset, start))
+                    failures.append(f"   {dset} (starting at '{start}')")
         print('--------------------------------------')
-        print(' Fit Method: %s ' % opts.method)
-        print(' Final Results: %i pass, %i fail.' % (tpass, tfail))
+        print(f' Fit Method: {opts.method} ')
+        print(f' Final Results: {tpass} pass, {tfail} fail.')
         print(' Tests Failed for:\n %s' % '\n '.join(failures))
         print('--------------------------------------')
     elif dset not in Models:
@@ -162,119 +168,129 @@ def run_interactive():
 
 
 def RunNIST_Model(model):
+
+    dset = ReadNistData(model)
+    func, npar, dimx = Models[model]
+    rss = (func(dset['cert_values'], x=dset['x'], y=dset['y'])**2).sum()
+    tiny_rss = 1.e-16
+    print(rss, dset['sum_squares'], tiny_rss)
+
+    if dset['sum_squares'] < tiny_rss:
+        assert rss < tiny_rss
+    else:
+        assert_allclose(rss, dset['sum_squares'])
+
     out1 = NIST_Dataset(model, start='start1', plot=False, verbose=False)
     out2 = NIST_Dataset(model, start='start2', plot=False, verbose=False)
-    print("NIST Test", model, out1, out2)
-    assert(out1 or out2)
-    return out1 or out2
+    assert (out1 or out2)
 
 
 def test_Bennett5():
-    return RunNIST_Model('Bennett5')
+    RunNIST_Model('Bennett5')
 
 
 def test_BoxBOD():
-    return RunNIST_Model('BoxBOD')
+    RunNIST_Model('BoxBOD')
 
 
 def test_Chwirut1():
-    return RunNIST_Model('Chwirut1')
+    RunNIST_Model('Chwirut1')
 
 
 def test_Chwirut2():
-    return RunNIST_Model('Chwirut2')
+    RunNIST_Model('Chwirut2')
 
 
 def test_DanWood():
-    return RunNIST_Model('DanWood')
+    RunNIST_Model('DanWood')
 
 
 def test_ENSO():
-    return RunNIST_Model('ENSO')
+    RunNIST_Model('ENSO')
 
 
 def test_Eckerle4():
-    return RunNIST_Model('Eckerle4')
+    RunNIST_Model('Eckerle4')
 
 
 def test_Gauss1():
-    return RunNIST_Model('Gauss1')
+    RunNIST_Model('Gauss1')
 
 
 def test_Gauss2():
-    return RunNIST_Model('Gauss2')
+    RunNIST_Model('Gauss2')
 
 
 def test_Gauss3():
-    return RunNIST_Model('Gauss3')
+    RunNIST_Model('Gauss3')
 
 
 def test_Hahn1():
-    return RunNIST_Model('Hahn1')
+    RunNIST_Model('Hahn1')
 
 
 def test_Kirby2():
-    return RunNIST_Model('Kirby2')
+    RunNIST_Model('Kirby2')
 
 
 def test_Lanczos1():
-    return RunNIST_Model('Lanczos1')
+    RunNIST_Model('Lanczos1')
 
 
 def test_Lanczos2():
-    return RunNIST_Model('Lanczos2')
+    RunNIST_Model('Lanczos2')
 
 
 def test_Lanczos3():
-    return RunNIST_Model('Lanczos3')
+    RunNIST_Model('Lanczos3')
 
 
 def test_MGH09():
-    return RunNIST_Model('MGH09')
+    RunNIST_Model('MGH09')
 
 
 def test_MGH10():
-    return RunNIST_Model('MGH10')
+    RunNIST_Model('MGH10')
 
 
 def test_MGH17():
-    return RunNIST_Model('MGH17')
+    RunNIST_Model('MGH17')
 
 
 def test_Misra1a():
-    return RunNIST_Model('Misra1a')
+    RunNIST_Model('Misra1a')
 
 
 def test_Misra1b():
-    return RunNIST_Model('Misra1b')
+    RunNIST_Model('Misra1b')
 
 
 def test_Misra1c():
-    return RunNIST_Model('Misra1c')
+    RunNIST_Model('Misra1c')
 
 
 def test_Misra1d():
-    return RunNIST_Model('Misra1d')
+    RunNIST_Model('Misra1d')
 
 
 def test_Nelson():
-    return RunNIST_Model('Nelson')
+    RunNIST_Model('Nelson')
 
 
 def test_Rat42():
-    return RunNIST_Model('Rat42')
+    RunNIST_Model('Rat42')
 
 
 def test_Rat43():
-    return RunNIST_Model('Rat43')
+    RunNIST_Model('Rat43')
 
 
 def test_Roszman1():
-    return RunNIST_Model('Roszman1')
+    RunNIST_Model('Roszman1')
 
 
 def test_Thurber():
-    return RunNIST_Model('Thurber')
+    RunNIST_Model('Thurber')
 
 
 if __name__ == '__main__':

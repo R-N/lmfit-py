@@ -1,16 +1,18 @@
+import sys
 import unittest
 
 import numpy as np
 from numpy import pi
-from numpy.testing import (assert_allclose, assert_almost_equal, assert_equal,
-                           dec)
+from numpy.testing import assert_allclose, assert_almost_equal, assert_equal
 import pytest
+from scipy.optimize import rosen_der
 from uncertainties import ufloat
 
 from lmfit import Minimizer, Parameters, minimize
 from lmfit.lineshapes import gaussian
 from lmfit.minimizer import (HAS_EMCEE, SCALAR_METHODS, MinimizerResult,
-                             _nan_policy)
+                             coerce_float64)
+from lmfit.models import SineModel
 
 try:
     import numdifftools  # noqa: F401
@@ -316,6 +318,32 @@ def test_ufloat():
     assert_allclose(y.std_dev, 0.0, rtol=1.e-7)
 
 
+def test_stderr_propagation():
+    """Test propagation of uncertainties to constraint expressions."""
+    model = SineModel()
+    params = model.make_params(amplitude=1, frequency=9.0, shift=0)
+    params.add("period", expr="1/frequency")
+    params.add("period_2a", expr="2*period")
+    params.add("period_2b", expr="2/frequency")
+    params.add("thing_1", expr="shift + frequency")
+    params.add("thing_2", expr="shift + 1/period")
+
+    np.random.seed(3)
+    xs = np.linspace(0, 1, 51)
+    ys = np.sin(7.45 * xs) + 0.01 * np.random.normal(size=xs.shape)
+
+    result = model.fit(ys, x=xs, params=params)
+
+    opars = result.params
+    assert_allclose(opars['period'].stderr, 1.1587e-04, rtol=1.e-3)
+    assert_allclose(opars['period_2b'].stderr, 2.3175e-04, rtol=1.e-3)
+    assert_allclose(opars['thing_1'].stderr, 0.0037291, rtol=1.e-3)
+
+    assert_allclose(opars['period_2a'].stderr, 2*opars['period'].stderr, rtol=1.e-5)
+    assert_allclose(opars['period_2b'].stderr, opars['period_2a'].stderr, rtol=1.e-5)
+    assert_allclose(opars['thing_1'].stderr, opars['thing_2'].stderr, rtol=1.e-5)
+
+
 class CommonMinimizerTest(unittest.TestCase):
 
     def setUp(self):
@@ -368,7 +396,7 @@ class CommonMinimizerTest(unittest.TestCase):
 
         # but only if a parameter is not fixed
         self.fit_params['decay'].vary = False
-        self.mini.scalar_minimize(method='differential_evolution', maxiter=1)
+        self.mini.scalar_minimize(method='differential_evolution', max_nfev=1)
 
     def test_scalar_minimizers(self):
         # test all the scalar minimizers
@@ -391,13 +419,15 @@ class CommonMinimizerTest(unittest.TestCase):
         for para, true_para in zip(out.params.values(), self.p_true.values()):
             check_wo_stderr(para, true_para.value, sig=sig)
 
-    def test_nan_policy(self):
+    def test_coerce_float64(self):
         # check that an error is raised if there are nan in
         # the data returned by userfcn
         self.data[0] = np.nan
 
         for method in SCALAR_METHODS:
-            if method == 'differential_evolution':
+            if method == 'cobyla' and sys.platform == 'darwin':
+                pytest.xfail("this aborts Python on macOS...")
+            elif method == 'differential_evolution':
                 pytest.raises(RuntimeError, self.mini.scalar_minimize,
                               SCALAR_METHODS[method])
             else:
@@ -414,19 +444,18 @@ class CommonMinimizerTest(unittest.TestCase):
         for para, true_para in zip(res.params.values(), self.p_true.values()):
             check_wo_stderr(para, true_para.value, sig=0.15)
 
-    def test_nan_policy_function(self):
+    def test_coerce_float64_function(self):
         a = np.array([0, 1, 2, 3, np.nan])
-        pytest.raises(ValueError, _nan_policy, a)
-        assert np.isnan(_nan_policy(a, nan_policy='propagate')[-1])
-        assert_equal(_nan_policy(a, nan_policy='omit'), [0, 1, 2, 3])
+        pytest.raises(ValueError, coerce_float64, a)
+        assert np.isnan(coerce_float64(a, nan_policy='propagate')[-1])
+        assert_equal(coerce_float64(a, nan_policy='omit'), [0, 1, 2, 3])
 
         a[-1] = np.inf
-        pytest.raises(ValueError, _nan_policy, a)
-        assert np.isposinf(_nan_policy(a, nan_policy='propagate')[-1])
-        assert_equal(_nan_policy(a, nan_policy='omit'), [0, 1, 2, 3])
-        assert_equal(_nan_policy(a, handle_inf=False), a)
+        pytest.raises(ValueError, coerce_float64, a)
+        assert np.isposinf(coerce_float64(a, nan_policy='propagate')[-1])
+        assert_equal(coerce_float64(a, nan_policy='omit'), [0, 1, 2, 3])
+        assert_equal(coerce_float64(a, handle_inf=False), a)
 
-    @dec.slow
     def test_emcee(self):
         # test emcee
         if not HAS_EMCEE:
@@ -437,7 +466,6 @@ class CommonMinimizerTest(unittest.TestCase):
 
         check_paras(out.params, self.p_true, sig=3)
 
-    @dec.slow
     def test_emcee_method_kwarg(self):
         # test with emcee as method keyword argument
         if not HAS_EMCEE:
@@ -457,7 +485,6 @@ class CommonMinimizerTest(unittest.TestCase):
                                             is_weighted=False)
         assert out_unweighted.method == 'emcee'
 
-    @dec.slow
     def test_emcee_multiprocessing(self):
         # test multiprocessing runs
         raise pytest.skip("Pytest fails with multiprocessing")
@@ -479,7 +506,6 @@ class CommonMinimizerTest(unittest.TestCase):
 
         self.mini.emcee(steps=10)
 
-    @dec.slow
     def test_emcee_partial_bounds(self):
         # mcmc with partial bounds
         if not HAS_EMCEE:
@@ -521,7 +547,7 @@ class CommonMinimizerTest(unittest.TestCase):
         # attribute
         assert hasattr(self.mini, '_lastpos')
 
-        # now try and re-use sampler
+        # now try and reuse sampler
         out2 = self.mini.emcee(steps=10, reuse_sampler=True)
         assert out2.chain.shape == (35, 20, 4)
 
@@ -584,7 +610,6 @@ class CommonMinimizerTest(unittest.TestCase):
         assert out.chain.shape == (7, 10, 4)
         assert out.flatchain.shape == (70, 4)
 
-    @dec.slow
     def test_emcee_float(self):
         # test that it works if the residuals returns a float, not a vector
         if not HAS_EMCEE:
@@ -608,7 +633,6 @@ class CommonMinimizerTest(unittest.TestCase):
                               burn=50, thin=10, float_behavior='chi2')
         check_paras(out.params, self.p_true, sig=3)
 
-    @dec.slow
     def test_emcee_seed(self):
         # test emcee seeding can reproduce a sampling run
         if not HAS_EMCEE:
@@ -630,6 +654,32 @@ class CommonMinimizerTest(unittest.TestCase):
 
         with pytest.raises(DeprecationWarning):
             _ = self.mini.emcee(params=self.fit_params, ntemps=5)
+
+    def test_emcee_custom_pool(self):
+        # tests use of a custom pool
+
+        if not HAS_EMCEE:
+            return True
+
+        global emcee_counter
+        emcee_counter = 0
+
+        class my_pool:
+            def map(self, f, arg):
+                global emcee_counter
+                emcee_counter += 1
+                return map(f, arg)
+
+        def cost_fun(params, **kwargs):
+            return rosen_der([params['a'], params['b']])
+
+        params = Parameters()
+        params.add('a', 1, min=-5, max=5, vary=True)
+        params.add('b', 1, min=-5, max=5, vary=True)
+
+        fitter = Minimizer(cost_fun, params)
+        fitter.emcee(workers=my_pool(), steps=1000, nwalkers=100)
+        assert emcee_counter > 500
 
 
 def residual_for_multiprocessing(pars, x, data=None):

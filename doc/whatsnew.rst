@@ -12,6 +12,325 @@ to be a comprehensive list of changes. For such a complete record,
 consult the `lmfit GitHub repository`_.
 
 
+.. _whatsnew_132_label:
+
+Version 1.3.2 Release Notes (July 19, 2024)
+====================================================
+
+Fixes:
+
+-  fix typo in restoring a ``_buildmodel`` dict (PR #957, Issue #956)
+-  fixes for Numpy2 support (PR #959, Issue #958)
+-  ensure that correct initial params are used when re-fitting a ModeRresult (PR #961, Issue #960)
+-  make sure that CompositeModels cannot have a prefix (PR #961, Issue #954)
+
+Build, Maintenance:
+
+- update pre-commit hooks, adding codespell exceptions
+- update to latest SciPy/NumPy versions, including dependency versions for NumPy 2.
+- now require asteval>=1.0 and uncertainties>=3.2.2
+
+
+.. _whatsnew_131_label:
+
+Version 1.3.1 Release Notes (April 19, 2024)
+====================================================
+
+Mostly fixes for bugs introduced in 1.3.0
+
+- allow ``Model.eval_uncertainty`` to be performed with single points for ``x``
+  independent variables (PR #952, Issue #951)
+
+-  allow ``Model._parse_param`` to handle older-style passed-in 'argnames' and
+   'kwargs' as for variadic function, add test  (PR #950)
+
+- better allow (or re-allow) Model function independent variables / keyword
+  argumentss to be given non-default values at model creation time
+
+- add ``form`` as independent variable for builtin Step, Rectangle, Thermal
+  Distribution models.
+
+- use a copy of ``sys.modules`` when iterating over it. (#949)
+
+-  use ``Model._reprstring(long=True)`` for model ``Model.__repr__()``.
+
+
+.. _whatsnew_130_label:
+
+Version 1.3.0 Release Notes (April 4, 2024)
+===========================================
+
+New features:
+
+- add ``'min_rel_change'`` as optional variable in calculation of confidence intervals with
+   ``Model.conf_interval()``. (PR #937).
+
+- ``Model.eval_uncertainty`` now takes an optional ``dscale`` parameter (default value of 0.01) to
+   set the step size for calculating derivatives (PR #933).
+
+- add calculation of ``predicted_interval`` to ``Model.eval_uncertainty`` (PR #933).
+
+
+Bug fixes/enhancements:
+
+- restore best-fit parameter values for high accuracy values of constrained values (PR #907)
+
+- improvement to Model for the difference between Parameter, "independent variable", and
+  "option".  With this change, keyword arguments to model functions with non-numerice
+  default values such as ``do_thing=True``, or ``form='linear'`` has those arguments
+  become clearly identified as independent variables,and use the provided values as
+  default values. (PR #941)
+
+- better saving/loading saved states of Model now use dill, have several cleanups, and
+  are now versioned for future-proofing. Also, propagate funcdets for Parameters when
+  loading a Model. (PR #932, PR #934)
+
+- in the TNC method, ``maxfun`` is used instead of ``maxiter``.
+
+- fix bug calculating r-squared for fits with weights (PR #921, PR #923)
+
+- fix bug in ``modelresult.eval_uncertainty()`` after ``load_modelresult()`` (PR #909)
+
+- use StringIO for ``pandas.read_json``.
+
+- add test for MinimizerResult.uvars after successful fit (PR #913)
+
+- adding an example using basinhopping, can take other methods as command-line argument
+
+Maintenance/Deprecations:
+
+- drop support for Python 3.7 that reached EOL on 2023-06-27 (PR #927)
+
+- fix tests for Python 3.12 and Python 3.13-dev
+
+- increase minimum numpy verstio to 1.23 and scipy to 1.8.
+
+- updates for compatibility with numpy 2.0
+
+- the ``dill`` package is now required. (#940)
+
+- build switchded to use pyproject.toml (#928)
+
+- fix broken links in Examples gallery
+
+- fix intersphinx mapping to scipy docs.
+
+
+.. _whatsnew_122_label:
+
+Version 1.2.2 Release Notes (July 14, 2023)
+===========================================
+
+New features:
+
+- add ``ModelResult.uvars`` output to a ``ModelResult`` after a successful fit
+  that contains ``ufloats`` from the ``uncertainties`` package which can be
+  used for downstream calculations that propagate the uncertainties (and
+  correlations) of the variable Parameters. (PR #888)
+
+- Outputs of residual functions, including ``Model._residual``, are more
+  explicitly coerced to 1d-arrays of datatype Float64.  This decreases the
+  expectation for the user-supplied code to return ndarrays, and increases the
+  tolerance for more "array-like" objects or ndarrays that are not Float64 or
+  1-dimensional. (PR #899)
+
+- ``Model.fit`` now takes a ``coerce_farray`` option, defaulting to ``True`` to
+  control whether to input data and independent variables that are "array-like"
+  are coerced to ndarrays of datatype Float64 or Complex128.  If set to
+  ``False`` then independent data that "array-like" (``pandas.Series``, int32
+  arrays, etc) will be sent to the model function unaltered. The user may then
+  use other features of these objects, but may also need to explicitly coerce
+  the datatype of the result the change described above about coercing the
+  result causes problems. (Discussion #873; PR #899)
+
+Bug fixes/enhancements:
+
+- fixed bug in ``Model.make_params()`` for non-composite models that use a
+  prefix (Discussion #892; Issue #893; PR #895)
+
+- fixed bug with aborted fits for several methods having incorrect or invalid
+  fit statistics. (Discussion #894; Issue #896; PR #897)
+
+- ``Model.eval_uncertainty`` now correctly calculates complex (real/imaginary pairs)
+  uncertainties for Models that generate complex results. (Issue #900; PR #901)
+
+- ``Model.eval`` now returns and array-like value. This adds to the coercion
+  features above and fixes a bug for composite models that return lists (Issue #875; PR #901)
+
+- the HTML representation for a ``ModelResult`` or ``MinimizerResult`` are
+  improved, and create fewer entries in the Table of Contents for Jupyter lab.
+  (Issue #884; PR #883; PR #902)
+
+.. _whatsnew_121_label:
+
+Version 1.2.1 Release Notes (May 02, 2023)
+==========================================
+
+Bug fixes/enhancements:
+
+- fixed bug in ``Model.make_params()`` for initial parameter values that were
+  not recognized as floats such as ``np.Int64``.  (Issue #871; PR #872)
+
+- explicitly set ``maxfun`` for ``l-bfgs-b`` method when setting
+  ``maxiter``. (Issue #864; Discussion #865; PR #866)
+
+.. _whatsnew_120_label:
+
+Version 1.2.0 Release Notes (April 05, 2023)
+============================================
+
+New features:
+
+- add ``create_params`` function (PR #844)
+- add ``chi2_out`` and ``nsigma`` options to ``conf_interval2d()``
+- add ``ModelResult.summary()`` to return many resulting fit statistics and attributes into a JSON-able dict.
+- add ``correl_table()`` function to ``lmfit.printfuncs`` and ``correl_mode`` option to ``fit_report()`` and
+  ``ModelResult.fit_report()`` to optionally display a RST-formatted table of a correlation matrix.
+
+Bug fixes/enhancements:
+
+- fix bug when setting ``param.vary=True`` for a constrained parameter (Issue #859; PR #860)
+- fix bug in reported uncertainties for constrained parameters by better propagating uncertainties (Issue #855; PR #856)
+- Coercing of user input data and independent data for ``Model`` to float64 ndarrays is somewhat less aggressive and
+  will not increase the precision of numpy ndarrays (see :ref:`model_data_coercion_section` for details). The resulting
+  calculation from a model or objective function is more aggressively coerced to float64.  (Issue #850; PR #853)
+- the default value of ``epsfcn`` is increased to 1.e-10 to allow for handling of data with precision less than float64
+  (Issue #850; PR #853)
+- fix ``conf_interval2d`` to use "increase chi-square by sigma**2*reduced chi-square" to give the ``sigma``-level
+  probabilities (Issue #848; PR #852)
+- fix reading of older ``ModelResult`` (Issue #845; included in PR #844)
+- fix deepcopy of ``Parameters`` and user data (mguhyo; PR #837)
+- improve ``Model.make_params`` and ``create_params`` to take optional dict of Parameter attributes (PR #844)
+- fix reporting of ``nfev`` from ``least_squares`` to better reflect actual number of function calls (Issue #842; PR #844)
+- fix bug in ``Model.eval`` when mixing parameters and keyword arguments (PR #844, #839)
+- re-adds ``residual`` to saved ``Model`` result (PR #844, #830)
+- ``ConstantModel`` and ``ComplexConstantModel`` will return an ndarray of the same shape as the independent variable
+  ``x`` (JeppeKlitgaard, Issue #840; PR #841)
+- update tests for latest versions of NumPy and SciPy.
+- many fixes of doc typos and updates of dependencies, pre-commit hooks, and CI.
+
+.. _whatsnew_110_label:
+
+Version 1.1.0 Release Notes (November 27, 2022)
+===============================================
+
+New features:
+
+- add ``Pearson4Model`` (@lellid; PR #800)
+- add ``SplineModel`` (PR #804)
+- add R^2 ``rsquared`` statistic to fit outputs and reports for Model fits (Issue #803; PR #810)
+- add calculation of ``dely`` for model components of composite models (Issue #761; PR #826)
+
+Bug fixes/enhancements:
+
+- make sure variable ``spercent`` is always defined in ``params_html_table`` functions (reported by @MySlientWind; Issue #768, PR #770)
+- always initialize the variables ``success`` and ``covar`` the ``MinimizerResult`` (reported by Marc W. Pound; PR #771)
+- build package following PEP517/PEP518; use ``pyproject.toml`` and ``setup.cfg``; leave ``setup.py`` for now (PR #777)
+- components used to create a ``CompositeModel`` can now have different independent variables (@Julian-Hochhaus; Discussion #787; PR #788)
+- fixed function definition for ``StepModel(form='linear')``, was not consistent with the other ones (@matpompili; PR #794)
+- fixed height factor for ``Gaussian2dModel``, was not correct (@matpompili; PR #795)
+- for covariances with negative diagonal elements, we set the covariance to ``None`` (PR #813)
+- fixed linear mode for ``RectangleModel`` (@arunpersaud; Issue #815; PR #816)
+- report correct initial values for parameters with bounds (Issue #820; PR #821)
+- allow recalculation of confidence intervals (@jagerber48; PR #798)
+- include 'residual' in JSON output of ModelResult.dumps (@mac01021; PR #830)
+- supports and is tested against Python 3.11; updated minimum required version of SciPy, NumPy, and asteval (PR #832)
+
+Deprecations:
+
+- remove support for Python 3.6 which reached EOL on 2021-12-23 (PR #790)
+
+
+.. _whatsnew_103_label:
+
+Version 1.0.3 Release Notes (October 14, 2021)
+==============================================
+
+Potentially breaking change:
+
+- argument ``x`` is now required for the ``guess`` method of Models (Issue #747; PR #748)
+
+To get reasonable estimates for starting values one should always supply both ``x`` and ``y`` values; in some cases it would work
+when only providing ``data`` (i.e., y-values). With the change above, ``x`` is now required in the ``guess`` method call, so scripts might
+need to be updated to explicitly supply ``x``.
+
+Bug fixes/enhancements:
+
+- do not overwrite user-specified figure titles in Model.plot() functions and allow setting with ``title`` keyword argument (PR #711)
+- preserve Parameters subclass in deepcopy (@jenshnielsen; PR #719)
+- coerce ``data`` and ``indepdent_vars`` to NumPy array with ``dtype=float64`` or ``dtype=complex128`` where applicable (Issues #723 and #728)
+- fix collision between parameter names in built-in models and user-specified parameters (Issue #710 and PR #732)
+- correct error message in PolynomialModel (@kremeyer; PR #737)
+- improved handling of altered JSON data (Issue #739; PR #740, reported by Matthew Giammar)
+- map ``max_nfev`` to ``maxiter`` when using ``differential_evolution`` (PR #749, reported by Olivier B.)
+- correct use of noise versus experimental uncertainty in the documentation (PR #751, reported by Andrés Zelcer)
+- specify return type of ``eval`` method more precisely and allow for plotting of (Complex)ConstantModel by coercing their
+  ``float``, ``int``, or ``complex`` return value to a ``numpy.ndarray`` (Issue #684 and PR #754)
+- fix ``dho`` (Damped Harmonic Oscillator) lineshape (PR #755; @rayosborn)
+- reset ``Minimizer._abort`` to ``False`` before starting a new fit (Issue #756 and PR #757; @azelcer)
+- fix typo in ``guess_from_peak2d`` (@ivan-usovl; PR #758)
+
+Various:
+
+- update asteval dependency to >= 0.9.22 to avoid DeprecationWarnings from NumPy v1.20.0 (PR #707)
+- remove incorrectly spelled ``DonaichModel`` and ``donaich`` lineshape, deprecated in version 1.0.1 (PR #707)
+- remove occurrences of OrderedDict throughout the code; dict is order-preserving since Python 3.6 (PR #713)
+- update the contributing instructions (PR #718; @martin-majlis)
+- (again) defer import of matplotlib to when it is needed (@zobristnicholas; PR #721)
+- fix description of ``name`` argument in ``Parameters.add`` (@kristianmeyerr; PR #725)
+- update dependencies, make sure a functional development environment is installed on Windows (Issue #712)
+- use ``setuptools_scm`` for version info instead of ``versioneer`` (PR #729)
+- transition to using ``f-strings`` (PR #730)
+- mark ``test_manypeaks_speed.py`` as flaky to avoid intermittent test failures (repeat up to 5 times; PR #745)
+- update scipy dependency to >= 1.14.0 (PR #751)
+- improvement to output of examples in sphinx-gallery and use higher resolution figures (PR #753)
+- remove deprecated functions ``lmfit.printfuncs.report_errors`` and ``asteval`` argument in ``Parameters`` class (PR #759)
+
+
+.. _whatsnew_102_label:
+
+Version 1.0.2 Release Notes (February 7, 2021)
+==============================================
+
+Version 1.0.2 officially supports Python 3.9 and has dropped support for Python 3.5. The minimum version
+of the following dependencies were updated: asteval>=0.9.21, numpy>=1.18, and scipy>=1.3.
+
+New features:
+
+- added two-dimensional Gaussian lineshape and model (PR #642; @mpmdean)
+- all built-in models are now registered in ``lmfit.models.lmfit_models``; new Model class attribute ``valid_forms`` (PR #663; @rayosborn)
+- added a SineModel (PR #676; @lneuhaus)
+- add the ``run_mcmc_kwargs argument`` to ``Minimizer.emcee`` to pass to the ``emcee.EnsembleSampler.run_mcmc`` function (PR #694; @rbnvrw)
+
+Bug fixes:
+
+- ``ModelResult.eval_uncertainty`` should use provided Parameters (PR #646)
+- center in lognormal model can be negative (Issue #644, PR #645; @YoshieraHuang)
+- restore best-fit values after calculation of covariance matrix (Issue #655, PR #657)
+- add helper-function ``not_zero`` to prevent ZeroDivisionError in lineshapes and use in exponential lineshape (Issue #631, PR #664; @s-weigand)
+- save ``last_internal_values`` and use to restore internal values if fit is aborted (PR #667)
+- dumping a fit using the ``lbfgsb`` method now works, convert bytes to string if needed (Issue #677, PR #678; @leonfoks)
+- fix use of callable Jacobian for scalar methods (PR #681; @mstimberg)
+- preserve float/int types when encoding for JSON (PR #696; @jedzill4)
+- better support for saving/loading of ExpressionModels and assure that ``init_params`` and ``init_fit`` are set when loading a ``ModelResult`` (PR #706)
+
+Various:
+
+- update minimum dependencies (PRs #688, #693)
+- improvements in coding style, docstrings, CI, and test coverage (PRs #647, #649, #650, #653, #654; #685, #668, #689)
+- fix typo in Oscillator (PR #658; @flothesof)
+- add example using SymPy (PR #662)
+- allow better custom pool for emcee() (Issue #666, PR #667)
+- update NIST Strd reference functions and tests (PR #670)
+- make building of documentation cross-platform (PR #673; @s-weigand)
+- relax module name check in ``test_check_ast_errors`` for Python 3.9 (Issue #674, PR #675; @mwhudson)
+- fix/update layout of documentation, now uses the sphinx13 theme (PR #687)
+- fixed DeprecationWarnings reported by NumPy v1.2.0 (PR #699)
+- increase value of ``tiny`` and check for it in bounded parameters to avoid "parameter not moving from initial value" (Issue #700, PR #701)
+- add ``max_nfev`` to ``basinhopping`` and ``brute`` (now supported everywhere in lmfit) and set to more uniform default values (PR #701)
+- use Azure Pipelines for CI, drop Travis (PRs #696 and #702)
+
+
 .. _whatsnew_101_label:
 
 Version 1.0.1 Release Notes
@@ -23,7 +342,7 @@ require 3.6+ so that we can use formatting-strings and rely on dictionaries bein
 New features:
 
 - added thermal distribution model and lineshape (PR #620; @mpmdean)
-- introduced a new argument ``max_nfev`` to uniformly specify the maximum number of function evalutions (PR #610)
+- introduced a new argument ``max_nfev`` to uniformly specify the maximum number of function evaluations (PR #610)
   **Please note: all other arguments (e.g., ``maxfev``, ``maxiter``, ...) will no longer be passed to the underlying
   solver. A warning will be emitted stating that one should use ``max_nfev``.**
 - the attribute ``call_kws`` was added to the ``MinimizerResult`` class and contains the keyword arguments that are

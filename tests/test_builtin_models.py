@@ -8,6 +8,7 @@ import pytest
 from scipy.optimize import fsolve
 
 from lmfit import lineshapes, models
+from lmfit.models import GaussianModel
 
 
 def check_height_fwhm(x, y, lineshape, model):
@@ -19,6 +20,8 @@ def check_height_fwhm(x, y, lineshape, model):
     mu = out.params['center'].value
     if lineshape is lineshapes.lognormal:
         cen = np.exp(mu - out.params['sigma']**2)
+    elif lineshape is lineshapes.pearson4:
+        cen = out.params['position']
     else:
         cen = mu
 
@@ -65,6 +68,7 @@ def test_height_fwhm_calculation(peakdata):
     y = peakdata[1]
     check_height_fwhm(x, y, lineshapes.voigt, models.VoigtModel())
     check_height_fwhm(x, y, lineshapes.pvoigt, models.PseudoVoigtModel())
+    check_height_fwhm(x, y, lineshapes.pearson4, models.Pearson4Model())
     check_height_fwhm(x, y, lineshapes.pearson7, models.Pearson7Model())
     check_height_fwhm(x, y, lineshapes.moffat, models.MoffatModel())
     check_height_fwhm(x, y, lineshapes.students_t, models.StudentsTModel())
@@ -109,6 +113,10 @@ def test_height_and_fwhm_expression_evalution_in_builtin_models():
 
     mod = models.MoffatModel()
     params = mod.make_params(amplitude=1.0, center=0.0, sigma=0.9, beta=0.0)
+    params.update_constraints()
+
+    mod = models.Pearson4Model()
+    params = mod.make_params(amplitude=1.0, center=0.0, sigma=0.9, expon=1.0, skew=5.0)
     params.update_constraints()
 
     mod = models.Pearson7Model()
@@ -214,6 +222,12 @@ def test_guess_modelparams():
     assert_allclose(pars['l_center'].value, 0.25, rtol=1)
     assert_allclose(pars['l_sigma'].value, 1.3, rtol=1)
 
+    mod = models.Pearson4Model(prefix='g_')
+    pars = mod.guess(y, x=x)
+    assert_allclose(pars['g_amplitude'].value, 3, rtol=2)
+    assert_allclose(pars['g_center'].value, 0.25, rtol=1)
+    assert_allclose(pars['g_sigma'].value, 1.3, rtol=1)
+
     mod = models.SplitLorentzianModel(prefix='s_')
     pars = mod.guess(y, x=x)
     assert_allclose(pars['s_amplitude'].value, 3, rtol=2)
@@ -287,10 +301,12 @@ def test_guess_from_peak2d():
         assert np.abs((guess_increasing_x[param].value - value)/value) < 0.5
 
 
-def test_DonaichModel_emits_futurewarning():
-    """Assert that using the wrong spelling emits a FutureWarning."""
-    msg = ('Please correct the name of your built-in model: DonaichModel --> '
-           'DoniachModel. The incorrect spelling will be removed in a later '
-           'release.')
-    with pytest.warns(FutureWarning, match=msg):
-        models.DonaichModel()
+def test_guess_requires_x():
+    """Regression test for GH #747."""
+    x = np.arange(100)
+    y = np.exp(-(x-50)**2/(2*10**2))
+
+    mod = GaussianModel()
+    msg = r"guess\(\) missing 1 required positional argument: 'x'"
+    with pytest.raises(TypeError, match=msg):
+        mod.guess(y)

@@ -14,11 +14,11 @@ mod = GaussianModel()
 pars = mod.guess(y, x=x)
 out = mod.fit(y, pars, x=x)
 
-print(out.fit_report(min_correl=0.25))
+print(out.fit_report(correl_mode='table'))
 
-plt.plot(x, y, 'b-')
-plt.plot(x, out.best_fit, 'r-', label='Gaussian Model')
-plt.legend(loc='best')
+plt.plot(x, y)
+plt.plot(x, out.best_fit, '-', label='Gaussian Model')
+plt.legend()
 plt.show()
 
 
@@ -27,12 +27,12 @@ mod = LorentzianModel()
 pars = mod.guess(y, x=x)
 out = mod.fit(y, pars, x=x)
 
-print(out.fit_report(min_correl=0.25))
+print(out.fit_report(correl_mode='table'))
 
 plt.figure()
-plt.plot(x, y, 'b-')
-plt.plot(x, out.best_fit, 'r-', label='Lorentzian Model')
-plt.legend(loc='best')
+plt.plot(x, y, '-')
+plt.plot(x, out.best_fit, '-', label='Lorentzian Model')
+plt.legend()
 plt.show()
 
 
@@ -41,20 +41,22 @@ mod = VoigtModel()
 pars = mod.guess(y, x=x)
 out = mod.fit(y, pars, x=x)
 
-print(out.fit_report(min_correl=0.25))
+print(out.fit_report(correl_mode='table'))
 
 fig, axes = plt.subplots(1, 2, figsize=(12.8, 4.8))
 
-axes[0].plot(x, y, 'b-')
-axes[0].plot(x, out.best_fit, 'r-', label='Voigt Model\ngamma constrained')
-axes[0].legend(loc='best')
+axes[0].plot(x, y, '-')
+axes[0].plot(x, out.best_fit, '-', label='Voigt Model\ngamma constrained')
+axes[0].legend()
 
-# free gamma parameter
-pars['gamma'].set(value=0.7, vary=True, expr='')
+# allow the gamma parameter to vary in the fit
+pars['gamma'].vary = True
 out_gamma = mod.fit(y, pars, x=x)
-axes[1].plot(x, y, 'b-')
-axes[1].plot(x, out_gamma.best_fit, 'r-', label='Voigt Model\ngamma unconstrained')
-axes[1].legend(loc='best')
+print(out.fit_report(correl_mode='table'))
+
+axes[1].plot(x, y, '-')
+axes[1].plot(x, out_gamma.best_fit, '-', label='Voigt Model\ngamma unconstrained')
+axes[1].legend()
 
 plt.show()
 # <end examples/doc_builtinmodels_peakmodels.py>

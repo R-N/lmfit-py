@@ -12,7 +12,7 @@ See also: https://lmfit.github.io/lmfit-py/constraints.html#using-inequality-con
 import matplotlib.pyplot as plt
 import numpy as np
 
-from lmfit import Minimizer, Parameters, report_fit
+from lmfit import Minimizer, create_params, report_fit
 from lmfit.lineshapes import gaussian, lorentzian
 
 
@@ -23,7 +23,7 @@ def residual(pars, x, data):
 
 
 ###############################################################################
-# Generate the simulated data using a Gaussian and Lorentzian line shape:
+# Generate the simulated data using a Gaussian and Lorentzian lineshape:
 np.random.seed(0)
 x = np.linspace(0, 20.0, 601)
 
@@ -35,14 +35,10 @@ data = (gaussian(x, 21, 6.1, 1.2) + lorentzian(x, 10, 9.6, 1.3) +
 # First, we add a new fitting  parameter ``peak_split``, which can take values
 # between 0 and 5. Afterwards, we constrain the value for ``cen_l`` using the
 # expression to be ``'peak_split+cen_g'``:
-pfit = Parameters()
-pfit.add(name='amp_g', value=10)
-pfit.add(name='amp_l', value=10)
-pfit.add(name='cen_g', value=5)
-pfit.add(name='peak_split', value=2.5, min=0, max=5, vary=True)
-pfit.add(name='cen_l', expr='peak_split+cen_g')
-pfit.add(name='wid_g', value=1)
-pfit.add(name='wid_l', expr='wid_g')
+pfit = create_params(amp_g=10, cen_g=5, wid_g=1, amp_l=10,
+                     peak_split=dict(value=2.5, min=0, max=5),
+                     cen_l=dict(expr='peak_split+cen_g'),
+                     wid_l=dict(expr='wid_g'))
 
 mini = Minimizer(residual, pfit, fcn_args=(x, data))
 out = mini.leastsq()
@@ -55,7 +51,7 @@ report_fit(out.params)
 
 ###############################################################################
 # and figure:
-plt.plot(x, data, 'bo')
-plt.plot(x, best_fit, 'r--', label='best fit')
-plt.legend(loc='best')
+plt.plot(x, data, 'o')
+plt.plot(x, best_fit, '--', label='best fit')
+plt.legend()
 plt.show()

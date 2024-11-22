@@ -20,12 +20,14 @@ ALLSPHINXOPTS   = $(SPHINX_OUTPUT) $(SPHINXOPTS) .
 html:  gallery
 	cp sphinx/ext_mathjax.py extensions.py
 	$(SPHINXBUILD) -b html $(SPHINX_OUTPUT) $(SPHINX_OPTS) . $(BUILDDIR)/html
+	./filter_spurious_link_from_html.py
 	@echo
 	@echo "html build finished: $(BUILDDIR)/html."
 
 debug:  gallery
 	cp sphinx/ext_mathjax.py extensions.py
 	$(SPHINXBUILD) -b html $(SPHINX_OUTPUT) $(SPHINX_DEBUGOPTS) . $(BUILDDIR)/html
+	./filter_spurious_link_from_html.py
 	@echo
 	@echo "html build finished: $(BUILDDIR)/html."
 
@@ -37,16 +39,19 @@ examples/index.rst:
 htmlzip: html
 	cp sphinx/ext_mathjax.py extensions.py
 	$(SPHINXBUILD) -b html $(SPHINX_OUTPUT) $(SPHINX_OPTS) . $(BUILDDIR)/lmfit_doc
+	./filter_spurious_link_from_html.py
 	cd $(BUILDDIR) && zip -pur html/lmfit_doc.zip lmfit_doc
 
-epub: html
-	cp sphinx/ext_mathjax.py extensions.py
+epub: gallery
+	cp sphinx/ext_imgmath.py extensions.py
 	$(SPHINXBUILD) -b epub  $(SPHINX_OUTPUT) $(SPHINX_OPTS) . $(BUILDDIR)/epub
+	mkdir -p $(BUILDDIR)/html
 	cp -pr $(BUILDDIR)/epub/*.epub $(BUILDDIR)/html/.
 
 pdf: latex
 	cp sphinx/ext_imgmath.py extensions.py
 	cd $(BUILDDIR)/latex && make all-pdf
+	mkdir -p $(BUILDDIR)/html
 	cp -pr $(BUILDDIR)/latex/lmfit.pdf $(BUILDDIR)/html/.
 
 all: html htmlzip epub pdf
@@ -65,11 +70,13 @@ help:
 	@echo "  doctest   to run all doctests embedded in the documentation (if enabled)"
 
 clean:
-	-rm -rf $(BUILDDIR)/*
+	-rm -rf $(BUILDDIR)
 	-rm -f extensions.py
 	-rm -f *.dat *.sav *.csv
 	-rm -rf examples/*
 	-rm -rf ../examples/documentation
+	-rm -rf __pycache__
+	-rm -rf sg_execution_times.rst
 
 dirhtml:  gallery
 	$(SPHINXBUILD) -b dirhtml $(SPHINX_OUTPUT) $(SPHINX_OPTS) . $(BUILDDIR)/dirhtml

@@ -20,15 +20,15 @@ def line(x, slope, intercept):
 
 
 mod = Model(gaussian) + Model(line)
-pars = mod.make_params(amp=5, cen=5, wid=1, slope=0, intercept=1)
+pars = mod.make_params(amp=5, cen=5, wid={'value': 1, 'min': 0},
+                       slope=0, intercept=1)
 
 result = mod.fit(y, pars, x=x)
-
 print(result.fit_report())
 
-plt.plot(x, y, 'bo')
-plt.plot(x, result.init_fit, 'k--', label='initial fit')
-plt.plot(x, result.best_fit, 'r-', label='best fit')
-plt.legend(loc='best')
+plt.plot(x, y, 'o')
+plt.plot(x, result.init_fit, '--', label='initial fit')
+plt.plot(x, result.best_fit, '-', label='best fit')
+plt.legend()
 plt.show()
 # <end examples/doc_model_two_components.py>

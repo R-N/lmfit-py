@@ -3,9 +3,19 @@
 import inspect
 
 import numpy as np
+from numpy.testing import assert_almost_equal
 import pytest
 
 import lmfit
+from lmfit.lineshapes import not_zero, tiny
+
+
+@pytest.mark.parametrize(
+    "value, expected_result",
+    [(1, 1.0), (-1, -1.0), (0, tiny), (-0, -tiny)])
+def test_not_zero(value, expected_result):
+    """Test that not_zero gives the expected results"""
+    assert_almost_equal(not_zero(value), expected_result)
 
 
 @pytest.mark.parametrize("lineshape", lmfit.lineshapes.functions)
@@ -62,13 +72,8 @@ def test_x_float_value(lineshape):
                 if par_name != 'x']:
         fnc_args.append(sig.parameters[par].default)
 
-    if lineshape in ('step', 'rectangle'):
-        msg = r"'float' object does not support item assignment"
-        with pytest.raises(TypeError, match=msg):
-            fnc_output = func(*fnc_args)
-    else:
-        fnc_output = func(*fnc_args)
-        assert isinstance(fnc_output, float)
+    fnc_output = func(*fnc_args)
+    assert isinstance(fnc_output, float)
 
 
 rising_form = ['erf', 'logistic', 'atan', 'arctan', 'linear', 'unknown']
@@ -100,6 +105,18 @@ def test_form_argument_step_rectangle(form, lineshape):
         assert len(fnc_output) == len(xvals)
 
 
+@pytest.mark.parametrize('form', rising_form)
+@pytest.mark.parametrize('lineshape', ['step', 'rectangle'])
+def test_value_step_rectangle(form, lineshape):
+    """Test values at mu1/mu2 for step- and rectangle-functions."""
+    func = getattr(lmfit.lineshapes, lineshape)
+    # at position mu1 we should be at A/2
+    assert_almost_equal(func(0), 0.5)
+    # for a rectangular shape we have the same at mu2
+    if lineshape == 'rectangle':
+        assert_almost_equal(func(1), 0.5)
+
+
 thermal_form = ['bose', 'maxwell', 'fermi', 'Bose-Einstein', 'unknown']
 
 
@@ -126,14 +143,3 @@ def test_form_argument_thermal_distribution(form):
     else:
         fnc_output = func(*fnc_args)
         assert len(fnc_output) == len(xvals)
-
-
-def test_donaich_emits_futurewarning():
-    """Assert that using the wrong spelling emits a FutureWarning."""
-    xvals = np.linspace(0, 10, 100)
-
-    msg = ('Please correct the name of your lineshape function: donaich --> '
-           'doniach. The incorrect spelling will be removed in a later '
-           'release.')
-    with pytest.warns(FutureWarning, match=msg):
-        lmfit.lineshapes.donaich(xvals)

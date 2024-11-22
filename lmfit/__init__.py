@@ -30,21 +30,16 @@ useful enhancements, including:
   * Many built-in models for common lineshapes are included and ready
     to use.
 
-Copyright (c) 2020 Lmfit Developers ; BSD-3 license ; see LICENSE
+Copyright (c) 2023 Lmfit Developers ; BSD-3 license ; see LICENSE
 
 """
 from asteval import Interpreter
 
 from .confidence import conf_interval, conf_interval2d
 from .minimizer import Minimizer, MinimizerException, minimize
-from .parameter import Parameter, Parameters
-from .printfuncs import (ci_report, fit_report, report_ci, report_errors,
-                         report_fit)
+from .parameter import Parameter, Parameters, create_params
+from .printfuncs import ci_report, fit_report, report_ci, report_fit
 from .model import Model, CompositeModel
 from . import lineshapes, models
 
-# versioneer code
-from ._version import get_versions
-
-__version__ = get_versions()['version']
-del get_versions
+from lmfit.version import version as __version__

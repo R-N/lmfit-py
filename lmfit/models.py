@@ -1,21 +1,20 @@
 """Module containing built-in fitting models."""
-
-import warnings
-import time
+import inspect
 
 from asteval import Interpreter, get_ast_names
 import numpy as np
+from scipy.interpolate import splev, splrep
 
 from . import lineshapes
 from .lineshapes import (breit_wigner, damped_oscillator, dho, doniach,
                          expgaussian, exponential, gaussian, gaussian2d,
                          linear, lognormal, lorentzian, moffat, parabolic,
-                         pearson7, powerlaw, pvoigt, rectangle,
+                         pearson4, pearson7, powerlaw, pvoigt, rectangle, sine,
                          skewed_gaussian, skewed_voigt, split_lorentzian, step,
-                         students_t, thermal_distribution, voigt)
+                         students_t, thermal_distribution, tiny, voigt)
 from .model import Model
 
-tiny = np.finfo(np.float).eps
+tau = 2.0 * np.pi
 
 
 class DimensionalError(Exception):
@@ -42,9 +41,6 @@ def height_expr(model):
 
 def guess_from_peak(model, y, x, negative, ampscale=1.0, sigscale=1.0):
     """Estimate starting values from 1D peak data and create Parameters."""
-    if x is None:
-        return 1.0, 0.0, 1.0
-
     sort_increasing = np.argsort(x)
     x = x[sort_increasing]
     y = y[sort_increasing]
@@ -68,18 +64,15 @@ def guess_from_peak(model, y, x, negative, ampscale=1.0, sigscale=1.0):
     sig = sig*sigscale
 
     pars = model.make_params(amplitude=amp, center=cen, sigma=sig)
-    pars['%ssigma' % model.prefix].set(min=0.0)
+    pars[f'{model.prefix}sigma'].set(min=0.0)
     return pars
 
 
 def guess_from_peak2d(model, z, x, y, negative):
     """Estimate starting values from 2D peak data and create Parameters."""
-    if x is None or y is None:
-        return 1.0, 0.0, 0.0, 1.0, 1.0
-
     maxx, minx = max(x), min(x)
     maxy, miny = max(y), min(y)
-    maxz, minz = max(z), min(x)
+    maxz, minz = max(z), min(z)
 
     centerx = x[np.argmax(z)]
     centery = y[np.argmax(z)]
@@ -96,15 +89,15 @@ def guess_from_peak2d(model, z, x, y, negative):
 
     pars = model.make_params(amplitude=amp, centerx=centerx, centery=centery,
                              sigmax=sigmax, sigmay=sigmay)
-    pars['%ssigmax' % model.prefix].set(min=0.0)
-    pars['%ssigmay' % model.prefix].set(min=0.0)
+    pars[f'{model.prefix}sigmax'].set(min=0.0)
+    pars[f'{model.prefix}sigmay'].set(min=0.0)
     return pars
 
 
 def update_param_vals(pars, prefix, **kwargs):
     """Update parameter values with keyword arguments."""
     for key, val in kwargs.items():
-        pname = "%s%s" % (prefix, key)
+        pname = f"{prefix}{key}"
         if pname in pars:
             pars[pname].value = val
     pars.update_constraints()
@@ -141,7 +134,9 @@ COMMON_GUESS_DOC = """Guess starting values for the parameters of a model.
     Parameters
     ----------
     data : array_like
-        Array of data to use to guess parameter values.
+        Array of data (i.e., y-values) to use to guess parameter values.
+    x : array_like
+        Array of values for the independent variable (i.e., x-values).
     **kws : optional
         Additional keyword arguments, passed to model function.
 
@@ -150,9 +145,10 @@ COMMON_GUESS_DOC = """Guess starting values for the parameters of a model.
     params : Parameters
         Initial, guessed values for the parameters of a Model.
 
-    """
+    .. versionchanged:: 1.0.3
+       Argument ``x`` is now explicitly required to estimate starting values.
 
-COMMON_DOC = COMMON_INIT_DOC
+    """
 
 
 class ConstantModel(Model):
@@ -171,14 +167,14 @@ class ConstantModel(Model):
                        'independent_vars': independent_vars})
 
         def constant(x, c=0.0):
-            return c
+            return c * np.ones(np.shape(x))
         super().__init__(constant, **kwargs)
 
-    def guess(self, data, **kwargs):
+    def guess(self, data, x=None, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = self.make_params()
 
-        pars['%sc' % self.prefix].set(value=data.mean())
+        pars[f'{self.prefix}c'].set(value=data.mean())
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -201,14 +197,14 @@ class ComplexConstantModel(Model):
                        'independent_vars': independent_vars})
 
         def constant(x, re=0., im=0.):
-            return re + 1j*im
+            return (re + 1j*im) * np.ones(np.shape(x))
         super().__init__(constant, **kwargs)
 
-    def guess(self, data, **kwargs):
+    def guess(self, data, x=None, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = self.make_params()
-        pars['%sre' % self.prefix].set(value=data.real.mean())
-        pars['%sim' % self.prefix].set(value=data.imag.mean())
+        pars[f'{self.prefix}re'].set(value=np.real(data).mean())
+        pars[f'{self.prefix}im'].set(value=np.imag(data).mean())
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -234,11 +230,9 @@ class LinearModel(Model):
                        'independent_vars': independent_vars})
         super().__init__(linear, **kwargs)
 
-    def guess(self, data, x=None, **kwargs):
+    def guess(self, data, x, **kwargs):
         """Estimate initial model parameter values from data."""
-        sval, oval = 0., 0.
-        if x is not None:
-            sval, oval = np.polyfit(x, data, 1)
+        sval, oval = np.polyfit(x, data, 1)
         pars = self.make_params(intercept=oval, slope=sval)
         return update_param_vals(pars, self.prefix, **kwargs)
 
@@ -263,11 +257,9 @@ class QuadraticModel(Model):
                        'independent_vars': independent_vars})
         super().__init__(parabolic, **kwargs)
 
-    def guess(self, data, x=None, **kwargs):
+    def guess(self, data, x, **kwargs):
         """Estimate initial model parameter values from data."""
-        a, b, c = 0., 0., 0.
-        if x is not None:
-            a, b, c = np.polyfit(x, data, 2)
+        a, b, c = np.polyfit(x, data, 2)
         pars = self.make_params(a=a, b=b, c=c)
         return update_param_vals(pars, self.prefix, **kwargs)
 
@@ -292,17 +284,21 @@ class PolynomialModel(Model):
     """
 
     MAX_DEGREE = 7
-    DEGREE_ERR = "degree must be an integer less than %d."
+    DEGREE_ERR = f"degree must be an integer equal to or smaller than {MAX_DEGREE}."
 
-    def __init__(self, degree, independent_vars=['x'], prefix='',
+    valid_forms = (0, 1, 2, 3, 4, 5, 6, 7)
+
+    def __init__(self, degree=7, independent_vars=['x'], prefix='',
                  nan_policy='raise', **kwargs):
         kwargs.update({'prefix': prefix, 'nan_policy': nan_policy,
                        'independent_vars': independent_vars})
+        if 'form' in kwargs:
+            degree = int(kwargs.pop('form'))
         if not isinstance(degree, int) or degree > self.MAX_DEGREE:
-            raise TypeError(self.DEGREE_ERR % self.MAX_DEGREE)
+            raise TypeError(self.DEGREE_ERR)
 
         self.poly_degree = degree
-        pnames = ['c%i' % (i) for i in range(degree + 1)]
+        pnames = [f'c{i}' for i in range(degree + 1)]
         kwargs['param_names'] = pnames
 
         def polynomial(x, c0=0, c1=0, c2=0, c3=0, c4=0, c5=0, c6=0, c7=0):
@@ -310,13 +306,179 @@ class PolynomialModel(Model):
 
         super().__init__(polynomial, **kwargs)
 
-    def guess(self, data, x=None, **kwargs):
+    def guess(self, data, x, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = self.make_params()
-        if x is not None:
-            out = np.polyfit(x, data, self.poly_degree)
-            for i, coef in enumerate(out[::-1]):
-                pars['%sc%i' % (self.prefix, i)].set(value=coef)
+        out = np.polyfit(x, data, self.poly_degree)
+        for i, coef in enumerate(out[::-1]):
+            pars[f'{self.prefix}c{i}'].set(value=coef)
+        return update_param_vals(pars, self.prefix, **kwargs)
+
+    __init__.__doc__ = COMMON_INIT_DOC
+    guess.__doc__ = COMMON_GUESS_DOC
+
+
+class SplineModel(Model):
+    r"""A 1-D cubic spline model with a variable number of `knots` and
+    parameters `s0`, `s1`, ..., `sN`, for `N` knots.
+
+    The user must supply a list or ndarray `xknots`: the `x` values for the
+    'knots' which control the flexibility of the spline function.
+
+    The parameters `s0`, ..., `sN` (where `N` is the size of `xknots`) will
+    correspond to the `y` values for the spline knots at the `x=xknots`
+    positions where the highest order derivative will be discontinuous.
+    The resulting curve will not necessarily pass through these knot
+    points, but for finely-spaced knots, the spline parameter values will
+    be very close to the `y` values of the resulting curve.
+
+    The maximum number of knots supported is 300.
+
+    Using the `guess()` method to initialize parameter values is highly
+    recommended.
+
+    Parameters
+    ----------
+    xknots : :obj:`list` of floats or :obj:`ndarray`, required
+        x-values of knots for spline.
+    independent_vars : :obj:`list` of :obj:`str`, optional
+        Arguments to the model function that are independent variables
+        default is ['x']).
+    prefix : str, optional
+        String to prepend to parameter names, needed to add two Models
+        that have parameter names in common.
+    nan_policy : {'raise', 'propagate', 'omit'}, optional
+        How to handle NaN and missing values in data. See Notes below.
+
+    Notes
+    -----
+    1.  There must be at least 4 knot points, and not more than 300.
+
+    2. `nan_policy` sets what to do when a NaN or missing value is seen in
+          the data. Should be one of:
+
+        - `'raise'` : raise a `ValueError` (default)
+        - `'propagate'` : do nothing
+        - `'omit'` : drop missing data
+
+    """
+
+    MAX_KNOTS = 300
+    NKNOTS_MAX_ERR = f"SplineModel supports up to {MAX_KNOTS:d} knots"
+    NKNOTS_NDARRY_ERR = "SplineModel xknots must be 1-D array-like"
+    DIM_ERR = "SplineModel supports only 1-d spline interpolation"
+
+    def __init__(self, xknots, independent_vars=['x'], prefix='',
+                 nan_policy='raise', **kwargs):
+        """ """
+        kwargs.update({'prefix': prefix, 'nan_policy': nan_policy,
+                       'independent_vars': independent_vars})
+
+        if isinstance(xknots, (list, tuple)):
+            xknots = np.asarray(xknots, dtype=np.float64)
+        try:
+            xknots = xknots.flatten()
+        except Exception:
+            raise TypeError(self.NKNOTS_NDARRAY_ERR)
+
+        if len(xknots) > self.MAX_KNOTS:
+            raise TypeError(self.NKNOTS_MAX_ERR)
+
+        if len(independent_vars) > 1:
+            raise TypeError(self.DIM_ERR)
+
+        self.xknots = xknots
+        self.nknots = len(xknots)
+        self.order = 3   # cubic splines only
+
+        def spline_model(x, s0=1, s1=1, s2=1, s3=1, s4=1, s5=1):
+            "used only for the initial parsing"
+            return x
+
+        super().__init__(spline_model, **kwargs)
+
+        if 'x' not in independent_vars:
+            self.independent_vars.pop('x')
+
+        self._param_root_names = [f's{d}' for d in range(self.nknots)]
+        self._param_names = [f'{prefix}{s}' for s in self._param_root_names]
+
+        self.knots, _c, _k = splrep(self.xknots, np.ones(self.nknots),
+                                    k=self.order)
+
+    def eval(self, params=None, **kwargs):
+        """note that we override `eval()` here for a variadic function,
+        as we will not know  the number of spline parameters until run time
+        """
+        self.make_funcargs(params, kwargs)
+
+        coefs = [params[f'{self.prefix}s{d}'].value for d in range(self.nknots)]
+        coefs.extend([coefs[-1]]*(self.order+1))
+        coefs = np.array(coefs)
+        x = kwargs[self.independent_vars[0]]
+        return splev(x, [self.knots, coefs, self.order])
+
+    def guess(self, data, x, **kwargs):
+        """Estimate initial model parameter values from data."""
+        pars = self.make_params()
+
+        for i, xk in enumerate(self.xknots):
+            ix = np.abs(x-xk).argmin()
+            this = data[ix]
+            pone = data[ix+1] if ix < len(x)-2 else this
+            mone = data[ix-1] if ix > 0 else this
+            pars[f'{self.prefix}s{i}'].value = (4.*this + pone + mone)/6.
+
+        return update_param_vals(pars, self.prefix, **kwargs)
+
+    guess.__doc__ = COMMON_GUESS_DOC
+
+
+class SineModel(Model):
+    r"""A model based on a sinusoidal lineshape.
+
+    The model has three Parameters: `amplitude`, `frequency`, and `shift`.
+
+    .. math::
+
+        f(x; A, \phi, f) = A \sin (f x + \phi)
+
+    where the parameter `amplitude` corresponds to :math:`A`, `frequency` to
+    :math:`f`, and `shift` to :math:`\phi`. All are constrained to be
+    non-negative, and `shift` additionally to be smaller than :math:`2\pi`.
+
+    """
+
+    def __init__(self, independent_vars=['x'], prefix='', nan_policy='raise',
+                 **kwargs):
+        kwargs.update({'prefix': prefix, 'nan_policy': nan_policy,
+                       'independent_vars': independent_vars})
+        super().__init__(sine, **kwargs)
+        self._set_paramhints_prefix()
+
+    def _set_paramhints_prefix(self):
+        self.set_param_hint('amplitude', min=0)
+        self.set_param_hint('frequency', min=0)
+        self.set_param_hint('shift', min=-tau-1.e-5, max=tau+1.e-5)
+
+    def guess(self, data, x, **kwargs):
+        """Estimate initial model parameter values from the FFT of the data."""
+        data = data - data.mean()
+        # assume uniform spacing
+        frequencies = np.fft.fftfreq(len(x), abs(x[-1] - x[0]) / (len(x) - 1))
+        fft = abs(np.fft.fft(data))
+        argmax = abs(fft).argmax()
+        amplitude = 2.0 * fft[argmax] / len(fft)
+        frequency = tau * abs(frequencies[argmax])
+        # try shifts in the range [0, 2*pi) and take the one with best residual
+        shift_guesses = np.linspace(0, tau, 11, endpoint=False)
+        errors = [np.linalg.norm(self.eval(x=x, amplitude=amplitude,
+                                           frequency=frequency,
+                                           shift=shift_guess) - data)
+                  for shift_guess in shift_guesses]
+        shift = shift_guesses[np.argmin(errors)]
+        pars = self.make_params(amplitude=amplitude, frequency=frequency,
+                                shift=shift)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -359,7 +521,14 @@ class GaussianModel(Model):
         self.set_param_hint('fwhm', expr=fwhm_expr(self))
         self.set_param_hint('height', expr=height_expr(self))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+#     def post_fit(self, result):
+#         addpar = result.params.add
+#         prefix = self.prefix
+#
+#         addpar(name=f'{prefix}fwhm', expr=fwhm_expr(self))
+#         addpar(name=f'{prefix}height', expr=height_expr(self))
+
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative)
         return update_param_vals(pars, self.prefix, **kwargs)
@@ -392,7 +561,7 @@ class Gaussian2dModel(Model):
     """
 
     fwhm_factor = 2*np.sqrt(2*np.log(2))
-    height_factor = 1./2*np.pi
+    height_factor = 1./(2*np.pi)
 
     def __init__(self, independent_vars=['x', 'y'], prefix='', nan_policy='raise',
                  **kwargs):
@@ -412,7 +581,21 @@ class Gaussian2dModel(Model):
         expr = fmt.format(tiny=tiny, factor=self.height_factor, prefix=self.prefix)
         self.set_param_hint('height', expr=expr)
 
-    def guess(self, data, x=None, y=None, negative=False, **kwargs):
+#     def post_fit(self, result):
+#         addpar = result.params.add
+#         prefix = self.prefix
+#         result.params.add(name=f'{prefix}fwhm', expr=fwhm_expr(self))
+#         result.params.add(name=f'{prefix}height', expr=height_expr(self))
+#
+#         expr = fwhm_expr(self)
+#         addpar('{prefix}fwhmx', expr=expr.replace('sigma', 'sigmax'))
+#         addpar('{prefix}fwhmy', expr=expr.replace('sigma', 'sigmay'))
+#         fmt = ("{factor:.7f}*{prefix:s}amplitude/(max({tiny}, {prefix:s}sigmax)"
+#                + "*max({tiny}, {prefix:s}sigmay))")
+#         expr = fmt.format(tiny=tiny, factor=self.height_factor, prefix=prefix)
+#         addpar(f'{prefix}height', expr=expr)
+
+    def guess(self, data, x, y, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak2d(self, data, x, y, negative)
         return update_param_vals(pars, self.prefix, **kwargs)
@@ -457,7 +640,13 @@ class LorentzianModel(Model):
         self.set_param_hint('fwhm', expr=fwhm_expr(self))
         self.set_param_hint('height', expr=height_expr(self))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+#     def post_fit(self, result):
+#         addpar = result.params.add
+#         prefix = self.prefix
+#         addpar(name=f'{prefix}fwhm', expr=fwhm_expr(self))
+#         addpar(name=f'{prefix}height', expr=height_expr(self))
+
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative, ampscale=1.25)
         return update_param_vals(pars, self.prefix, **kwargs)
@@ -513,11 +702,19 @@ class SplitLorentzianModel(Model):
         self.set_param_hint('fwhm', expr=fwhm_expr.format(pre=self.prefix))
         self.set_param_hint('height', expr=height_expr.format(np.pi, tiny, pre=self.prefix))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+#     def post_fit(self, result):
+#         fwhm_expr = '{pre:s}sigma+{pre:s}sigma_r'
+#         height_expr = '2*{pre:s}amplitude/{0:.7f}/max({1:.7f}, ({pre:s}sigma+{pre:s}sigma_r))'
+#         addpar = result.params.add
+#         prefix = self.prefix
+#         addpar(name=f'{prefix}fwhm', expr=fwhm_expr.format(pre=prefix))
+#         addpar(name=f'{prefix}height', expr=height_expr.format(np.pi, tiny, pre=prefix))
+
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative, ampscale=1.25)
-        sigma = pars['%ssigma' % self.prefix]
-        pars['%ssigma_r' % self.prefix].set(value=sigma.value, min=sigma.min, max=sigma.max)
+        sigma = pars[f'{self.prefix}sigma']
+        pars[f'{self.prefix}sigma_r'].set(value=sigma.value, min=sigma.min, max=sigma.max)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -568,17 +765,26 @@ class VoigtModel(Model):
 
     def _set_paramhints_prefix(self):
         self.set_param_hint('sigma', min=0)
-        self.set_param_hint('gamma', expr='%ssigma' % self.prefix)
-
+        self.set_param_hint('gamma', expr=f'{self.prefix}sigma')
         fexpr = ("1.0692*{pre:s}gamma+" +
                  "sqrt(0.8664*{pre:s}gamma**2+5.545083*{pre:s}sigma**2)")
         hexpr = ("({pre:s}amplitude/(max({0}, {pre:s}sigma*sqrt(2*pi))))*"
-                 "wofz((1j*{pre:s}gamma)/(max({0}, {pre:s}sigma*sqrt(2)))).real")
-
+                 "real(wofz((1j*{pre:s}gamma)/(max({0}, {pre:s}sigma*sqrt(2)))))")
         self.set_param_hint('fwhm', expr=fexpr.format(pre=self.prefix))
         self.set_param_hint('height', expr=hexpr.format(tiny, pre=self.prefix))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+#     def post_fit(self, result):
+#         fexpr = ("1.0692*{pre:s}gamma+" +
+#                  "sqrt(0.8664*{pre:s}gamma**2+5.545083*{pre:s}sigma**2)")
+#         hexpr = ("({pre:s}amplitude/(max({0}, {pre:s}sigma*sqrt(2*pi))))*"
+#                  "wofz((1j*{pre:s}gamma)/(max({0}, {pre:s}sigma*sqrt(2)))).real")
+#
+#         addpar = result.params.add
+#         prefix = self.prefix
+#         addpar(name=f'{prefix}fwhm', expr=fexpr.format(pre=prefix))
+#         addpar(name=f'{prefix}height', expr=hexpr.format(tiny, pre=prefix))
+
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative,
                                ampscale=1.5, sigscale=0.65)
@@ -632,12 +838,24 @@ class PseudoVoigtModel(Model):
                "max({0}, ({prefix:s}sigma*sqrt(pi/log(2))))+"
                "({prefix:s}fraction*{prefix:s}amplitude)/"
                "max({0}, (pi*{prefix:s}sigma)))")
+
         self.set_param_hint('height', expr=fmt.format(tiny, prefix=self.prefix))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+#     def post_fit(self, result):
+#         addpar = result.params.add
+#         prefix = self.prefix
+#         hexpr = ("(((1-{prefix:s}fraction)*{prefix:s}amplitude)/"
+#                  "max({0}, ({prefix:s}sigma*sqrt(pi/log(2))))+"
+#                  "({prefix:s}fraction*{prefix:s}amplitude)/"
+#                  "max({0}, (pi*{prefix:s}sigma)))")
+#
+#         addpar(name=f'{prefix}fwhm', expr=fwhm_expr(self))
+#         addpar(name=f'{prefix}height', expr=hexpr.format(tiny, prefix=prefix))
+
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative, ampscale=1.25)
-        pars['%sfraction' % self.prefix].set(value=0.5, min=0.0, max=1.0)
+        pars[f'{self.prefix}fraction'].set(value=0.5, min=0.0, max=1.0)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -677,12 +895,65 @@ class MoffatModel(Model):
     def _set_paramhints_prefix(self):
         self.set_param_hint('sigma', min=0)
         self.set_param_hint('beta')
-        self.set_param_hint('fwhm', expr="2*%ssigma*sqrt(2**(1.0/max(1e-3, %sbeta))-1)" % (self.prefix, self.prefix))
-        self.set_param_hint('height', expr="%samplitude" % self.prefix)
+        self.set_param_hint('fwhm', expr=f"2*{self.prefix}sigma*sqrt(2**(1.0/max(1e-3, {self.prefix}beta))-1)")
+        self.set_param_hint('height', expr=f"{self.prefix}amplitude")
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative, ampscale=0.5, sigscale=1.)
+        return update_param_vals(pars, self.prefix, **kwargs)
+
+    __init__.__doc__ = COMMON_INIT_DOC
+    guess.__doc__ = COMMON_GUESS_DOC
+
+
+class Pearson4Model(Model):
+    r"""A model based on a Pearson IV distribution.
+
+    The model has five parameters: `amplitude` (:math:`A`), `center`
+    (:math:`\mu`), `sigma` (:math:`\sigma`), `expon` (:math:`m`) and `skew` (:math:`\nu`).
+    In addition, parameters `fwhm`, `height` and `position` are included as
+    constraints to report estimates for the approximate full width at half maximum (20% error),
+    the peak height, and the peak position (the position of the maximal  function value), respectively.
+    The fwhm value has an error of about 20% in the
+    parameter range expon: (0.5, 1000], skew: [-1000, 1000].
+
+    .. math::
+
+        f(x;A,\mu,\sigma,m,\nu)=A \frac{\left|\frac{\Gamma(m+i\tfrac{\nu}{2})}{\Gamma(m)}\right|^2}{\sigma\beta(m-\tfrac{1}{2},\tfrac{1}{2})}\left[1+\frac{(x-\mu)^2}{\sigma^2}\right]^{-m}\exp\left(-\nu \arctan\left(\frac{x-\mu}{\sigma}\right)\right)
+
+    where :math:`\beta` is the beta function (see :scipydoc:`special.beta`).
+    The :meth:`guess` function always gives a starting value of 1.5 for `expon`,
+    and 0 for `skew`.
+
+    For more information, see:
+    https://en.wikipedia.org/wiki/Pearson_distribution#The_Pearson_type_IV_distribution
+
+    """
+
+    def __init__(self, independent_vars=['x'], prefix='', nan_policy='raise',
+                 **kwargs):
+        kwargs.update({'prefix': prefix, 'nan_policy': nan_policy,
+                       'independent_vars': independent_vars})
+        super().__init__(pearson4, **kwargs)
+        self._set_paramhints_prefix()
+
+    def _set_paramhints_prefix(self):
+        self.set_param_hint('expon', value=1.5, min=0.5 + tiny, max=1000)
+        self.set_param_hint('skew', value=0.0, min=-1000, max=1000)
+        fmt = ("{prefix:s}sigma*sqrt(2**(1/{prefix:s}expon)-1)*pi/arctan2(exp(1)*{prefix:s}expon, {prefix:s}skew)")
+        self.set_param_hint('fwhm', expr=fmt.format(prefix=self.prefix))
+        fmt = ("({prefix:s}amplitude / {prefix:s}sigma) * exp(2 * (real(loggammafcn({prefix:s}expon + {prefix:s}skew * 0.5j)) - loggammafcn({prefix:s}expon)) - betalnfnc({prefix:s}expon-0.5, 0.5) - "
+               "{prefix:s}expon * log1p(square({prefix:s}skew/(2*{prefix:s}expon))) - {prefix:s}skew * arctan(-{prefix:s}skew/(2*{prefix:s}expon)))")
+        self.set_param_hint('height', expr=fmt.format(tiny, prefix=self.prefix))
+        fmt = ("{prefix:s}center-{prefix:s}sigma*{prefix:s}skew/(2*{prefix:s}expon)")
+        self.set_param_hint('position', expr=fmt.format(prefix=self.prefix))
+
+    def guess(self, data, x, negative=False, **kwargs):
+        """Estimate initial model parameter values from data."""
+        pars = guess_from_peak(self, data, x, negative)
+        pars[f'{self.prefix}expon'].set(value=1.5)
+        pars[f'{self.prefix}skew'].set(value=0.0)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -728,10 +999,10 @@ class Pearson7Model(Model):
                "max({0}, (gamfcn(0.5)*gamfcn({prefix:s}expon-0.5)*{prefix:s}sigma))")
         self.set_param_hint('height', expr=fmt.format(tiny, prefix=self.prefix))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative)
-        pars['%sexpon' % self.prefix].set(value=1.5)
+        pars[f'{self.prefix}expon'].set(value=1.5)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -773,7 +1044,7 @@ class StudentsTModel(Model):
                "{prefix:s}sigma-{prefix:s}sigma)")
         self.set_param_hint('fwhm', expr=fmt.format(prefix=self.prefix))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative)
         return update_param_vals(pars, self.prefix, **kwargs)
@@ -806,10 +1077,10 @@ class BreitWignerModel(Model):
     def _set_paramhints_prefix(self):
         self.set_param_hint('sigma', min=0.0)
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative)
-        pars['%sq' % self.prefix].set(value=1.0)
+        pars[f'{self.prefix}q'].set(value=1.0)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -851,10 +1122,10 @@ class LognormalModel(Model):
                "2*log(2)))")
         self.set_param_hint('fwhm', expr=fmt.format(prefix=self.prefix))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = self.make_params(amplitude=1.0, center=0.0, sigma=0.25)
-        pars['%ssigma' % self.prefix].set(min=0.0)
+        pars[f'{self.prefix}sigma'].set(min=0.0)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -891,7 +1162,7 @@ class DampedOscillatorModel(Model):
         self.set_param_hint('sigma', min=0)
         self.set_param_hint('height', expr=height_expr(self))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative,
                                ampscale=0.1, sigscale=0.1)
@@ -934,6 +1205,7 @@ class DampedHarmonicOscillatorModel(Model):
         self._set_paramhints_prefix()
 
     def _set_paramhints_prefix(self):
+        self.set_param_hint('center', min=0)
         self.set_param_hint('sigma', min=0)
         self.set_param_hint('gamma', min=1.e-19)
         fmt = ("({prefix:s}amplitude*{prefix:s}sigma)/"
@@ -943,11 +1215,11 @@ class DampedHarmonicOscillatorModel(Model):
         self.set_param_hint('height', expr=fmt.format(tiny, prefix=self.prefix))
         self.set_param_hint('fwhm', expr=fwhm_expr(self))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative,
                                ampscale=0.1, sigscale=0.1)
-        pars['%sgamma' % self.prefix].set(value=1.0, min=0.0)
+        pars[f'{self.prefix}gamma'].set(value=1.0, min=0.0)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -985,7 +1257,7 @@ class ExponentialGaussianModel(Model):
         self.set_param_hint('sigma', min=0)
         self.set_param_hint('gamma', min=0, max=20)
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative)
         return update_param_vals(pars, self.prefix, **kwargs)
@@ -1025,7 +1297,7 @@ class SkewedGaussianModel(Model):
     def _set_paramhints_prefix(self):
         self.set_param_hint('sigma', min=0)
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative)
         return update_param_vals(pars, self.prefix, **kwargs)
@@ -1064,9 +1336,9 @@ class SkewedVoigtModel(Model):
 
     def _set_paramhints_prefix(self):
         self.set_param_hint('sigma', min=0)
-        self.set_param_hint('gamma', expr='%ssigma' % self.prefix)
+        self.set_param_hint('gamma', expr=f'{self.prefix}sigma')
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative)
         return update_param_vals(pars, self.prefix, **kwargs)
@@ -1109,21 +1381,19 @@ class ThermalDistributionModel(Model):
 
     """
 
-    def __init__(self, independent_vars=['x'], prefix='', nan_policy='raise',
-                 form='bose', **kwargs):
+    valid_forms = ('bose', 'maxwell', 'fermi')
+
+    def __init__(self, independent_vars=['x', 'form'], prefix='',
+                 nan_policy='raise', form='bose', **kwargs):
         kwargs.update({'prefix': prefix, 'nan_policy': nan_policy,
                        'form': form, 'independent_vars': independent_vars})
         super().__init__(thermal_distribution, **kwargs)
         self._set_paramhints_prefix()
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
-        if x is None:
-            center = 0
-            kt = 1
-        else:
-            center = np.mean(x)
-            kt = (max(x) - min(x))/10
+        center = np.mean(x)
+        kt = (max(x) - min(x))/10
 
         pars = self.make_params()
         return update_param_vals(pars, self.prefix, center=center, kt=kt)
@@ -1163,31 +1433,13 @@ class DoniachModel(Model):
                "*cos(pi*{prefix:s}gamma/2)")
         self.set_param_hint('height', expr=fmt.format(tiny, prefix=self.prefix))
 
-    def guess(self, data, x=None, negative=False, **kwargs):
+    def guess(self, data, x, negative=False, **kwargs):
         """Estimate initial model parameter values from data."""
         pars = guess_from_peak(self, data, x, negative, ampscale=0.5)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
     guess.__doc__ = COMMON_GUESS_DOC
-
-
-class DonaichModel(DoniachModel):
-    """A model of an Doniach Sunjic asymmetric lineshape.
-
-    Model added here for backwards-compatibility, will emit a
-    `FutureWarning` when used.
-
-    """
-
-    def __init__(self, independent_vars=['x'], prefix='', nan_policy='raise',
-                 **kwargs):
-
-        msg = ('Please correct the name of your built-in model: DonaichModel '
-               '--> DoniachModel. The incorrect spelling will be removed in '
-               'a later release.')
-        warnings.warn(FutureWarning(msg))
-        super().__init__(**kwargs)
 
 
 class PowerLawModel(Model):
@@ -1210,7 +1462,7 @@ class PowerLawModel(Model):
                        'independent_vars': independent_vars})
         super().__init__(powerlaw, **kwargs)
 
-    def guess(self, data, x=None, **kwargs):
+    def guess(self, data, x, **kwargs):
         """Estimate initial model parameter values from data."""
         try:
             expon, amp = np.polyfit(np.log(x+1.e-14), np.log(data+1.e-14), 1)
@@ -1245,7 +1497,7 @@ class ExponentialModel(Model):
                        'independent_vars': independent_vars})
         super().__init__(exponential, **kwargs)
 
-    def guess(self, data, x=None, **kwargs):
+    def guess(self, data, x, **kwargs):
         """Estimate initial model parameter values from data."""
         try:
             sval, oval = np.polyfit(x, np.log(abs(data)+1.e-15), 1)
@@ -1273,38 +1525,45 @@ class StepModel(Model):
       https://en.wikipedia.org/wiki/Logistic_function)
 
     The step function starts with a value 0 and ends with a value of
-    :math:`A` rising to :math:`A/2` at :math:`\mu`, with :math:`\sigma`
-    setting the characteristic width. The functional forms are defined as:
+    :math:`\tt{sign}(\sigma)A` rising or falling to :math:`A/2` at :math:`\mu`,
+    with :math:`\sigma` setting the characteristic width of the step.
+    The functional forms are defined as:
 
     .. math::
         :nowrap:
 
         \begin{eqnarray*}
-        & f(x; A, \mu, \sigma, {\mathrm{form={}'linear{}'}})  & = A \min{[1, \max{(0, \alpha)}]} \\
+        & f(x; A, \mu, \sigma, {\mathrm{form={}'linear{}'}})  & = A \min{[1, \max{(0, \alpha + 1/2)}]} \\
         & f(x; A, \mu, \sigma, {\mathrm{form={}'arctan{}'}})  & = A [1/2 + \arctan{(\alpha)}/{\pi}] \\
         & f(x; A, \mu, \sigma, {\mathrm{form={}'erf{}'}})     & = A [1 + {\operatorname{erf}}(\alpha)]/2 \\
-        & f(x; A, \mu, \sigma, {\mathrm{form={}'logistic{}'}})& = A [1 - \frac{1}{1 + e^{\alpha}} ]
+        & f(x; A, \mu, \sigma, {\mathrm{form={}'logistic{}'}})& = A \left[1 - \frac{1}{1 + e^{\alpha}} \right]
         \end{eqnarray*}
 
     where :math:`\alpha = (x - \mu)/{\sigma}`.
 
+    Note that :math:`\sigma > 0` gives a rising step, while :math:`\sigma < 0` gives
+    a falling step.
     """
 
-    def __init__(self, independent_vars=['x'], prefix='', nan_policy='raise',
-                 form='linear', **kwargs):
+    valid_forms = ('linear', 'atan', 'arctan', 'erf', 'logistic')
+
+    def __init__(self, independent_vars=['x', 'form'], prefix='',
+                 nan_policy='raise', form='linear', **kwargs):
         kwargs.update({'prefix': prefix, 'nan_policy': nan_policy,
                        'form': form, 'independent_vars': independent_vars})
         super().__init__(step, **kwargs)
 
-    def guess(self, data, x=None, **kwargs):
+    def guess(self, data, x, **kwargs):
         """Estimate initial model parameter values from data."""
-        if x is None:
-            return
         ymin, ymax = min(data), max(data)
         xmin, xmax = min(x), max(x)
         pars = self.make_params(amplitude=(ymax-ymin),
                                 center=(xmax+xmin)/2.0)
-        pars['%ssigma' % self.prefix].set(value=(xmax-xmin)/7.0, min=0.0)
+        n = len(data)
+        sigma = 0.1*(xmax - xmin)
+        if data[:n//5].mean() > data[-n//5:].mean():
+            sigma = -sigma
+        pars[f'{self.prefix}sigma'].set(value=sigma)
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -1338,20 +1597,24 @@ class RectangleModel(Model):
         :nowrap:
 
         \begin{eqnarray*}
-        &f(x; A, \mu, \sigma, {\mathrm{form={}'linear{}'}})   &= A \{ \min{[1, \max{(0, \alpha_1)}]} + \min{[-1, \max{(0, \alpha_2)}]} \} \\
+        &f(x; A, \mu, \sigma, {\mathrm{form={}'linear{}'}})   &= A \{ \min{[1, \max{(-1, \alpha_1)}]} + \min{[1, \max{(-1, \alpha_2)}]} \}/2 \\
         &f(x; A, \mu, \sigma, {\mathrm{form={}'arctan{}'}})   &= A [\arctan{(\alpha_1)} + \arctan{(\alpha_2)}]/{\pi} \\
-        &f(x; A, \mu, \sigma, {\mathrm{form={}'erf{}'}})      &= A [{\operatorname{erf}}(\alpha_1) + {\operatorname{erf}}(\alpha_2)]/2 \\
-        &f(x; A, \mu, \sigma, {\mathrm{form={}'logistic{}'}}) &= A [1 - \frac{1}{1 + e^{\alpha_1}} - \frac{1}{1 + e^{\alpha_2}} ]
+        &f(x; A, \mu, \sigma, {\mathrm{form={}'erf{}'}})      &= A \left[{\operatorname{erf}}(\alpha_1) + {\operatorname{erf}}(\alpha_2)\right]/2 \\
+        &f(x; A, \mu, \sigma, {\mathrm{form={}'logistic{}'}}) &= A \left[1 - \frac{1}{1 + e^{\alpha_1}} - \frac{1}{1 + e^{\alpha_2}} \right]
         \end{eqnarray*}
 
 
     where :math:`\alpha_1 = (x - \mu_1)/{\sigma_1}` and
     :math:`\alpha_2 = -(x - \mu_2)/{\sigma_2}`.
 
+    Note that, unlike a StepModel, :math:`\sigma_1 > 0` is enforced, giving a
+    rising initial step, and  :math:`\sigma_2 > 0` gives a falling final step.
     """
 
-    def __init__(self, independent_vars=['x'], prefix='', nan_policy='raise',
-                 form='linear', **kwargs):
+    valid_forms = ('linear', 'atan', 'arctan', 'erf', 'logistic')
+
+    def __init__(self, independent_vars=['x', 'form'], prefix='',
+                 nan_policy='raise', form='linear', **kwargs):
         kwargs.update({'prefix': prefix, 'nan_policy': nan_policy,
                        'form': form, 'independent_vars': independent_vars})
         super().__init__(rectangle, **kwargs)
@@ -1362,20 +1625,18 @@ class RectangleModel(Model):
         self.set_param_hint('center1')
         self.set_param_hint('center2')
         self.set_param_hint('midpoint',
-                            expr='(%scenter1+%scenter2)/2.0' % (self.prefix,
-                                                                self.prefix))
+                            expr=f'({self.prefix}center1+{self.prefix}center2)/2.0')
 
-    def guess(self, data, x=None, **kwargs):
+    def guess(self, data, x, **kwargs):
         """Estimate initial model parameter values from data."""
-        if x is None:
-            return
         ymin, ymax = min(data), max(data)
         xmin, xmax = min(x), max(x)
         pars = self.make_params(amplitude=(ymax-ymin),
                                 center1=(xmax+xmin)/4.0,
-                                center2=3*(xmax+xmin)/4.0)
-        pars['%ssigma1' % self.prefix].set(value=(xmax-xmin)/7.0, min=0.0)
-        pars['%ssigma2' % self.prefix].set(value=(xmax-xmin)/7.0, min=0.0)
+                                center2=3*(xmax+xmin)/4.0,
+                                sigma1={'value': (xmax-xmin)/10.0, 'min': 0},
+                                sigma2={'value': (xmax-xmin)/10.0, 'min': 0})
+
         return update_param_vals(pars, self.prefix, **kwargs)
 
     __init__.__doc__ = COMMON_INIT_DOC
@@ -1385,8 +1646,8 @@ class RectangleModel(Model):
 class ExpressionModel(Model):
     """ExpressionModel class."""
 
-    idvar_missing = "No independent variable found in\n %s"
-    idvar_notfound = "Cannot find independent variables '%s' in\n %s"
+    idvar_missing = "No independent variable found in\n {}"
+    idvar_notfound = "Cannot find independent variables '{}' in\n {}"
     no_prefix = "ExpressionModel does not support `prefix` argument"
 
     def __init__(self, expr, independent_vars=None, init_script=None,
@@ -1414,13 +1675,17 @@ class ExpressionModel(Model):
         2. `prefix` is **not supported** for ExpressionModel.
 
         3. `nan_policy` sets what to do when a NaN or missing value is
-        seen in the data. Should be one of:
+           seen in the data. Should be one of:
 
             - `'raise'` : raise a `ValueError` (default)
             - `'propagate'` : do nothing
             - `'omit'` : drop missing data
 
         """
+        if 'prefix' in kws:
+            raise Warning(self.no_prefix)
+        kws["nan_policy"] = nan_policy
+
         # create ast evaluator, load custom functions
         self.asteval = Interpreter()
         for name in lineshapes.functions:
@@ -1438,7 +1703,7 @@ class ExpressionModel(Model):
         if independent_vars is None and 'x' in sym_names:
             independent_vars = ['x']
         if independent_vars is None:
-            raise ValueError(self.idvar_missing % (self.expr))
+            raise ValueError(self.idvar_missing.format(self.expr))
 
         # determine which named symbols are parameter names,
         # try to find all independent variables
@@ -1457,16 +1722,13 @@ class ExpressionModel(Model):
                 if not found:
                     lost.append(independent_vars[ix])
             lost = ', '.join(lost)
-            raise ValueError(self.idvar_notfound % (lost, self.expr))
+            raise ValueError(self.idvar_notfound.format(lost, self.expr))
 
-        kws['independent_vars'] = independent_vars
-        if 'prefix' in kws:
-            raise Warning(self.no_prefix)
+        kws['independent_vars'] = self.independent_vars = independent_vars
 
         def _eval(**kwargs):
             for name, val in kwargs.items():
                 self.asteval.symtable[name] = val
-            self.asteval.start_time = time.time()
             return self.asteval.run(self.astcode)
 
         kws["nan_policy"] = nan_policy
@@ -1475,15 +1737,19 @@ class ExpressionModel(Model):
 
         # set param names here, and other things normally
         # set in _parse_params(), which will be short-circuited.
-        self.independent_vars = independent_vars
         self._func_allargs = independent_vars + param_names
         self._param_names = param_names
         self._func_haskeywords = True
+        self.independent_var_defvals = {'x': inspect._empty}
         self.def_vals = {}
 
     def __repr__(self):
         """Return printable representation of ExpressionModel."""
-        return "<lmfit.ExpressionModel('%s')>" % (self.expr)
+        return f"<lmfit.ExpressionModel('{self.expr}')>"
+
+    def _reprstring(self, long=False):
+        """Return printable representation of ExpressionModel."""
+        return f"<lmfit.ExpressionModel('{self.expr}')>"
 
     def _parse_params(self):
         """Over-write ExpressionModel._parse_params with `pass`.
@@ -1491,3 +1757,36 @@ class ExpressionModel(Model):
         This prevents normal parsing of function for parameter names.
 
         """
+        pass
+
+
+lmfit_models = {'Constant': ConstantModel,
+                'Complex Constant': ComplexConstantModel,
+                'Linear': LinearModel,
+                'Quadratic': QuadraticModel,
+                'Polynomial': PolynomialModel,
+                'Spline': SplineModel,
+                'Gaussian': GaussianModel,
+                'Gaussian-2D': Gaussian2dModel,
+                'Lorentzian': LorentzianModel,
+                'Split-Lorentzian': SplitLorentzianModel,
+                'Voigt': VoigtModel,
+                'PseudoVoigt': PseudoVoigtModel,
+                'Moffat': MoffatModel,
+                'Pearson4': Pearson4Model,
+                'Pearson7': Pearson7Model,
+                'StudentsT': StudentsTModel,
+                'Breit-Wigner': BreitWignerModel,
+                'Log-Normal': LognormalModel,
+                'Damped Oscillator': DampedOscillatorModel,
+                'Damped Harmonic Oscillator': DampedHarmonicOscillatorModel,
+                'Exponential Gaussian': ExponentialGaussianModel,
+                'Skewed Gaussian': SkewedGaussianModel,
+                'Skewed Voigt': SkewedVoigtModel,
+                'Thermal Distribution': ThermalDistributionModel,
+                'Doniach': DoniachModel,
+                'Power Law': PowerLawModel,
+                'Exponential': ExponentialModel,
+                'Step': StepModel,
+                'Rectangle': RectangleModel,
+                'Expression': ExpressionModel}
