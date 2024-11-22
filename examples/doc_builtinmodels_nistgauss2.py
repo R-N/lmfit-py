@@ -14,7 +14,7 @@ gauss2 = GaussianModel(prefix='g2_')
 
 
 def index_of(arrval, value):
-    """return index of array *at or below* value """
+    """Return index of array *at or below* value."""
     if value < min(arrval):
         return 0
     return max(np.where(arrval <= value)[0])
@@ -35,9 +35,9 @@ out = mod.fit(y, pars, x=x)
 
 print(out.fit_report(min_correl=0.5))
 
-plt.plot(x, y, 'b')
-plt.plot(x, out.init_fit, 'k--', label='initial fit')
-plt.plot(x, out.best_fit, 'r-', label='best fit')
-plt.legend(loc='best')
+plt.plot(x, y)
+plt.plot(x, out.init_fit, '--', label='initial fit')
+plt.plot(x, out.best_fit, '-', label='best fit')
+plt.legend()
 plt.show()
 # <end examples/doc_nistgauss2.py>

@@ -13,7 +13,7 @@ highly desirable to place mathematical constraints on parameter values.
 For example, one might want to require that two Gaussian peaks have the
 same width, or have amplitudes that are constrained to add to some value.
 Of course, one could rewrite the objective or model function to place such
-requirements, but this is somewhat error prone, and limits the flexibility
+requirements, but this is somewhat error-prone, and limits the flexibility
 so that exploring constraints becomes laborious.
 
 To simplify the setting of constraints, Parameters can be assigned a
@@ -61,9 +61,9 @@ Supported Operators, Functions, and Constants
 =============================================
 
 The mathematical expressions used to define constrained Parameters need to
-be valid python expressions. As you'd expect, the operators '+', '-', '*',
-'/', '**', are supported. In fact, a much more complete set can be used,
-including Python's bit- and logical operators::
+be valid Python expressions. As you would expect, the operators ``+``, ``-``,
+``*``, ``/``, and ``**``, are supported. In fact, a much more complete set can
+be used, including Python's bit- and logical operators::
 
     +, -, *, /, **, &, |, ^, <<, >>, %, and, or,
     ==, >, >=, <, <=, !=, ~, not, is, is not, in, not in
@@ -195,8 +195,10 @@ and then initialize the :class:`Minimizer` class with this parameter set:
 
     from lmfit import Minimizer
 
+
     def userfcn(x, params):
         pass
+
 
     fitter = Minimizer(userfcn, pars)
 

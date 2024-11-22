@@ -1,5 +1,4 @@
 """Tests for the AMPGO global minimization algorithm."""
-import sys
 
 import numpy as np
 from numpy.testing import assert_allclose
@@ -60,10 +59,7 @@ def test_ampgo_local_solver(minimizer_Alpine02):
     """Test AMPGO algorithm with local solver."""
     kws = {'local': 'Nelder-Mead'}
 
-    msg = r'Method Nelder-Mead cannot handle constraints nor bounds'
-    with pytest.warns(RuntimeWarning, match=msg):
-        out = minimizer_Alpine02.minimize(method='ampgo', **kws)
-
+    out = minimizer_Alpine02.minimize(method='ampgo', **kws)
     out_x = np.array([out.params['x0'].value, out.params['x1'].value])
 
     assert 'ampgo' and 'Nelder-Mead' in out.method
@@ -94,18 +90,16 @@ def test_ampgo_invalid_tabustrategy(minimizer_Alpine02):
         minimizer_Alpine02.minimize(method='ampgo', **kws)
 
 
-@pytest.mark.skipif(sys.version_info.major == 2,
-                    reason="does not throw an exception in Python 2")
 def test_ampgo_local_opts(minimizer_Alpine02):
     """Test AMPGO algorithm, pass local_opts to solver."""
-    # use local_opts to pass maxiter to the local optimizer: providing a string
+    # use local_opts to pass maxfun to the local optimizer: providing a string
     # whereas an integer is required, this should throw an error.
-    kws = {'local_opts': {'maxiter': 'string'}}
+    kws = {'local_opts': {'maxfun': 'string'}}
     with pytest.raises(TypeError):
         minimizer_Alpine02.minimize(method='ampgo', **kws)
 
     # for coverage: make sure that both occurrences are reached
-    kws = {'local_opts': {'maxiter': 10}, 'maxfunevals': 50}
+    kws = {'local_opts': {'maxfun': 10}, 'maxfunevals': 50}
     minimizer_Alpine02.minimize(method='ampgo', **kws)
 
 

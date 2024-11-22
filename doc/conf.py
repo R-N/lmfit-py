@@ -35,15 +35,17 @@ autoclass_content = 'both'
 
 # shpinx.ext.intersphinx settings
 intersphinx_mapping = {'py': ('https://docs.python.org/3', None),
-                       'numpy': ('https://numpy.org/doc/stable', None),
-                       'scipy': ('https://docs.scipy.org/doc/scipy/reference/', None),
-                       'matplotlib': ('https://matplotlib.org', None),
+                       'numpy': ('https://numpy.org/doc/stable/', None),
+                       'scipy': ('https://docs.scipy.org/doc/scipy/', None),
+                       'matplotlib': ('https://matplotlib.org/stable/', None),
+                       'pandas': ('https://pandas.pydata.org/pandas-docs/stable/', None),
+                       'sympy': ('https://docs.sympy.org/latest/', None),
                        }
 
 # shpinx.ext.extlinks settings
 extlinks = {
-    'scipydoc': ('https://docs.scipy.org/doc/scipy/reference/generated/scipy.%s.html', 'scipy.'),
-    'numpydoc': ('https://docs.scipy.org/doc/numpy/reference/generated/numpy.%s.html', 'numpy.'),
+    'scipydoc': ('https://docs.scipy.org/doc/scipy/reference/generated/scipy.%s.html', 'scipy.%s'),
+    'numpydoc': ('https://docs.scipy.org/doc/numpy/reference/generated/numpy.%s.html', 'numpy.%s'),
     }
 
 # sphinx.ext.imgmath settings
@@ -63,11 +65,11 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'lmfit'
-copyright = u'{}, Matthew Newville, Till Stensitzki, and others'.format(date.today().year)
+copyright = f'{date.today().year}, Matthew Newville, Till Stensitzki, Renee Otten, and others'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
-version = release = lmfit.__version__.split('+', 1)[0]
+version = release = lmfit.__version__.split('.post')[0]
 
 # List of directories, relative to source directory, that shouldn't be searched
 # for source files.
@@ -98,7 +100,7 @@ pygments_style = 'sphinx'
 
 # Add any paths that contain custom themes here, relative to this directory.
 html_theme_path = ['sphinx/theme']
-html_theme = 'lmfitdoc'
+html_theme = 'sphinx13'
 
 # The name for this set of Sphinx documents.  If None, it defaults to
 # "<project> v<release> documentation".
@@ -133,7 +135,7 @@ html_use_index = True
 #html_split_index = False
 
 # If true, links to the reST sources are added to the pages.
-html_show_sourcelink = True
+html_show_sourcelink = False
 
 # If true, an OpenSearch description file will be output, and all pages will
 # contain a <link> tag referring to it.  The value of this option must be the
@@ -153,28 +155,26 @@ htmlhelp_basename = 'lmfitdoc'
 latex_documents = [
   ('index', 'lmfit.tex',
    'Non-Linear Least-Squares Minimization and Curve-Fitting for Python',
-   'Matthew Newville, Till Stensitzki, and others', 'manual'),
+   'Matthew Newville, Till Stensitzki, Renee Otten, and others', 'manual'),
 ]
 
 # configuration for jupyter_sphinx
 package_path = os.path.abspath('../..')
 os.environ['PYTHONPATH'] = ':'.join((package_path, os.environ.get('PYTHONPATH', '')))
 
-image_converter_args=["-density", "300"]
-
 # Sphinx-gallery configuration
 sphinx_gallery_conf = {
     'examples_dirs': '../examples',
     'gallery_dirs': 'examples',
-    'filename_pattern': '/documentation|/example_',
-    'ignore_pattern': '/doc_',
+    'filename_pattern': r'(\\|/)documentation|(\\|/)example_',
+    'ignore_pattern': 'doc_',
     'ignore_repr_types': r'matplotlib',
+    'image_srcset': ["3x"],
 }
 
-# remove warnings about matplotlib and Agg backend from gallery examples
-warnings.filterwarnings("ignore", category=UserWarning,
-                        message='Matplotlib is currently using agg, which is a'
-                                ' non-GUI backend, so cannot show the figure.')
+# remove certain RuntimeWarnings from examples
+warnings.filterwarnings("ignore", category=RuntimeWarning,
+                        message="overflow encountered")
 
-
-
+# Suppress "WARNING: unknown mimetype for _static/empty
+suppress_warnings = ['epub.unknown_project_files']
