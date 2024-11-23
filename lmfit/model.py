@@ -9,8 +9,11 @@ import warnings
 
 from asteval import valid_symbol_name
 import numpy as np
-from scipy.special import erf
-from scipy.stats import t
+try:
+    from scipy.special import erf
+    from scipy.stats import t
+except ImportError:
+    pass
 
 import lmfit
 
@@ -1688,6 +1691,8 @@ class ModelResult(Minimizer):
         ...                  out.best_fit+dely, color='#888888')
 
         """
+        #from scipy.special import erf
+        #from scipy.stats import t
         userkws = self.userkws.copy()
         userkws.update(kwargs)
         if params is None:

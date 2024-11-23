@@ -5,8 +5,6 @@ import json
 
 from asteval import Interpreter, get_ast_names, valid_symbol_name
 from numpy import arcsin, array, cos, inf, isclose, sin, sqrt
-from scipy.linalg import LinAlgError
-import scipy.special
 from uncertainties import correlated_values, ufloat
 from uncertainties import wrap as uwrap
 
@@ -14,11 +12,15 @@ from .jsonutils import decode4js, encode4js
 from .lineshapes import tiny
 from .printfuncs import params_html_table
 
-SCIPY_FUNCTIONS = {'gamfcn': scipy.special.gamma,
-                   'loggammafcn': scipy.special.loggamma,
-                   'betalnfnc': scipy.special.betaln}
-for fnc_name in ('erf', 'erfc', 'wofz'):
-    SCIPY_FUNCTIONS[fnc_name] = getattr(scipy.special, fnc_name)
+try:
+    import scipy.special
+    SCIPY_FUNCTIONS = {'gamfcn': scipy.special.gamma,
+                    'loggammafcn': scipy.special.loggamma,
+                    'betalnfnc': scipy.special.betaln}
+    for fnc_name in ('erf', 'erfc', 'wofz'):
+        SCIPY_FUNCTIONS[fnc_name] = getattr(scipy.special, fnc_name)
+except ImportError:
+    SCIPY_FUNCTIONS = {}
 
 
 def check_ast_errors(expr_eval):
@@ -546,12 +548,15 @@ class Parameters(dict):
         corr_uvars = None
         if covar is not None:
             try:
+                from scipy.linalg import LinAlgError
+            except ImportError:
+                from numpy.linalg import LinAlgError
+            try:
                 corr_uvars = correlated_values(vbest, covar)
                 for name, cuv in zip(vnames, corr_uvars):
                     uvars[name] = cuv
             except (LinAlgError, ValueError):
                 pass
-
         if has_expr and corr_uvars is not None:
             # for uncertainties on constrained parameters, use the calculated
             # correlated values, evaluate the uncertainties on the constrained

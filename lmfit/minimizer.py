@@ -22,20 +22,24 @@ import numbers
 import warnings
 
 import numpy as np
-from scipy import __version__ as scipy_version
-from scipy.linalg import LinAlgError, inv
-from scipy.optimize import basinhopping as scipy_basinhopping
-from scipy.optimize import brute as scipy_brute
-from scipy.optimize import differential_evolution
-from scipy.optimize import dual_annealing as scipy_dual_annealing
-from scipy.optimize import least_squares
-from scipy.optimize import leastsq as scipy_leastsq
-from scipy.optimize import minimize as scipy_minimize
-from scipy.optimize import shgo as scipy_shgo
-from scipy.sparse import issparse
-from scipy.sparse.linalg import LinearOperator
-from scipy.stats import cauchy as cauchy_dist
-from scipy.stats import norm as norm_dist
+try:
+    pass
+    from scipy import __version__ as scipy_version
+    from scipy.linalg import LinAlgError, inv
+    from scipy.optimize import basinhopping as scipy_basinhopping
+    from scipy.optimize import brute as scipy_brute
+    from scipy.optimize import differential_evolution
+    from scipy.optimize import dual_annealing as scipy_dual_annealing
+    from scipy.optimize import least_squares
+    from scipy.optimize import leastsq as scipy_leastsq
+    from scipy.optimize import minimize as scipy_minimize
+    from scipy.optimize import shgo as scipy_shgo
+    from scipy.sparse import issparse
+    from scipy.sparse.linalg import LinearOperator
+    from scipy.stats import cauchy as cauchy_dist
+    from scipy.stats import norm as norm_dist
+except ImportError:
+    pass
 
 from ._ampgo import ampgo
 from .parameter import Parameter, Parameters
