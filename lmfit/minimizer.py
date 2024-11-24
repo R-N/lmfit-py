@@ -38,7 +38,7 @@ try:
     from scipy.sparse.linalg import LinearOperator
     from scipy.stats import cauchy as cauchy_dist
     from scipy.stats import norm as norm_dist
-except ImportError:
+except (ModuleNotFoundError, ImportError):
     pass
 
 from ._ampgo import ampgo

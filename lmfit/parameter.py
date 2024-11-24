@@ -19,7 +19,7 @@ try:
                     'betalnfnc': scipy.special.betaln}
     for fnc_name in ('erf', 'erfc', 'wofz'):
         SCIPY_FUNCTIONS[fnc_name] = getattr(scipy.special, fnc_name)
-except ImportError:
+except (ModuleNotFoundError, ImportError):
     SCIPY_FUNCTIONS = {}
 
 
@@ -549,7 +549,7 @@ class Parameters(dict):
         if covar is not None:
             try:
                 from scipy.linalg import LinAlgError
-            except ImportError:
+            except (ModuleNotFoundError, ImportError):
                 from numpy.linalg import LinAlgError
             try:
                 corr_uvars = correlated_values(vbest, covar)

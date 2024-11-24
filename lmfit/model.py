@@ -12,7 +12,7 @@ import numpy as np
 try:
     from scipy.special import erf
     from scipy.stats import t
-except ImportError:
+except (ModuleNotFoundError, ImportError):
     pass
 
 import lmfit

@@ -3,9 +3,12 @@
 from warnings import warn
 
 import numpy as np
-from scipy.optimize import root_scalar
-from scipy.special import erf
-from scipy.stats import f
+try:
+    from scipy.optimize import root_scalar
+    from scipy.special import erf
+    from scipy.stats import f
+except (ModuleNotFoundError, ImportError):
+    pass
 
 from .minimizer import MinimizerException
 
